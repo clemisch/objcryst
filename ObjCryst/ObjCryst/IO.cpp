@@ -2177,6 +2177,9 @@ void PowderPattern::XMLOutput(ostream &os,int indent)const
 
       this->GetPar(&m2ThetaTransparency).XMLOutput(os,"2ThetaTransparency",indent);
       os <<endl;
+
+      this->GetPar(&m2ThetaFlatDetDispRatio).XMLOutput(os,"2ThetaFlatDetDispRatio",indent);
+      os <<endl;
    }
    if(mMuR>0)
    {
@@ -2304,6 +2307,11 @@ void PowderPattern::XMLInput(istream &is,const XMLCrystTag &tagg)
                if("2ThetaTransparency"==tag.GetAttributeValue(i))
                {
                   this->GetPar(&m2ThetaTransparency).XMLInput(is,tag);
+                  break;
+               }
+               if("2ThetaFlatDetDispRatio"==tag.GetAttributeValue(i))
+               {
+                  this->GetPar(&m2ThetaFlatDetDispRatio).XMLInput(is,tag);
                   break;
                }
                if("TOF-DIFC"==tag.GetAttributeValue(i))
