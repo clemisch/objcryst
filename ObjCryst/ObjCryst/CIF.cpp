@@ -1130,10 +1130,15 @@ Crystal* CreateCrystalFromCIF(CIF &cif,const bool verbose,const bool checkSymAsX
             unsigned int bestscore=0;
             for(vector<string>::const_iterator posOrig=origin_list.begin();posOrig!=origin_list.end();++posOrig)
             {
-               // The origin extension may not make sense, so we need to watch for exception
+               // Test candidate settings on a temporary crystal so we don't mutate the
+               // imported crystal lattice while probing alternate origin/setting choices.
+               Crystal tmpCryst(pos->second.mvLatticePar[0],pos->second.mvLatticePar[1],pos->second.mvLatticePar[2],
+                                pos->second.mvLatticePar[3],pos->second.mvLatticePar[4],pos->second.mvLatticePar[5],hmorig);
+               string testSymbol=hmorig;
                try
                {
-                  pCryst->ChangeSpaceGroup(hmorig+*posOrig);
+                  testSymbol += *posOrig;
+                  tmpCryst.ChangeSpaceGroup(testSymbol);
                }
                catch(invalid_argument)
                {
@@ -1141,9 +1146,9 @@ Crystal* CreateCrystalFromCIF(CIF &cif,const bool verbose,const bool checkSymAsX
                }
 
                // If the symbol is the same as before, the origin probably was not understood - no need to test
-               if((posOrig!=origin_list.begin())&&(pCryst->GetSpaceGroup().GetName()==bestsymbol)) continue;
+               if((posOrig!=origin_list.begin())&&(tmpCryst.GetSpaceGroup().GetName()==bestsymbol)) continue;
 
-               unsigned int nbSymSpg=pCryst->GetSpaceGroup().GetCCTbxSpg().all_ops().size();
+               unsigned int nbSymSpg=tmpCryst.GetSpaceGroup().GetCCTbxSpg().all_ops().size();
                unsigned int nbSymCommon=0;
                try
                {
@@ -1153,7 +1158,7 @@ Crystal* CreateCrystalFromCIF(CIF &cif,const bool verbose,const bool checkSymAsX
                         posSymCIF!=pos->second.mvSymmetry_equiv_pos_as_xyz.end();++posSymCIF)
                      {
                         cctbx::sgtbx::rt_mx mx1(*posSymCIF);
-                        cctbx::sgtbx::rt_mx mx2(pCryst->GetSpaceGroup().GetCCTbxSpg().all_ops()[i]);
+                        cctbx::sgtbx::rt_mx mx2(tmpCryst.GetSpaceGroup().GetCCTbxSpg().all_ops()[i]);
                         mx1.mod_positive_in_place();
                         mx2.mod_positive_in_place();
                         if(mx1==mx2)
@@ -1163,14 +1168,14 @@ Crystal* CreateCrystalFromCIF(CIF &cif,const bool verbose,const bool checkSymAsX
                         }
                      }
                   }
-                  if(verbose) cout<<"   Trying: "<<pCryst->GetSpaceGroup().GetName()
+                  if(verbose) cout<<"   Trying: "<<tmpCryst.GetSpaceGroup().GetName()
                       <<" nbsym:"<<nbSymSpg<<"(cctbx), "
                       <<pos->second.mvSymmetry_equiv_pos_as_xyz.size()<<"(CIF)"
                       <<",common:"<<nbSymCommon<<endl;
                   if(bestscore<((nbSymSpg==pos->second.mvSymmetry_equiv_pos_as_xyz.size())*nbSymCommon))
                   {
                      bestscore=(nbSymSpg==pos->second.mvSymmetry_equiv_pos_as_xyz.size())*nbSymCommon;
-                     bestsymbol=pCryst->GetSpaceGroup().GetName();
+                     bestsymbol=tmpCryst.GetSpaceGroup().GetName();
                   }
                }
                catch(cctbx::error)
