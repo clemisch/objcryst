@@ -1140,7 +1140,7 @@ Crystal* CreateCrystalFromCIF(CIF &cif,const bool verbose,const bool checkSymAsX
                   canonicalSymbol = cctbxspg.match_tabulated_settings().hermann_mauguin();
                   if(ext!='\0') canonicalSymbol += ":" + string(1, ext);
                }
-               catch(exception)
+               catch(cctbx::error)
                {
                   continue;
                }
