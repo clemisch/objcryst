@@ -56,6 +56,15 @@
 
 namespace ObjCryst
 {
+namespace
+{
+REAL CalcFlatDetDispShift(const REAL x, const REAL ratio)
+{
+   if(0.0==ratio) return 0.0;
+   return atan(ratio * sin(2*x) / (2 - 2 * ratio * pow(sin(x), 2)));
+}
+}
+
 ////////////////////////////////////////////////////////////////////////
 //
 //        Cylinder absorption correction
@@ -794,7 +803,7 @@ PowderPatternDiffraction::PowderPatternDiffraction():
 mpReflectionProfile(0),
 mCorrLorentz(*this),mCorrPolar(*this),mCorrSlitAperture(*this),
 mCorrTextureMarchDollase(*this),mCorrTextureEllipsoid(*this),mCorrTOF(*this),mCorrCylAbs(*this),mExtractionMode(false),
-mpLeBailData(0),mFrozenLatticePar(6),mFreezeLatticePar(false),mFrozenBMatrix(3,3),mGenHKLBMatrix(3,3)
+mpLeBailData(0),m2ThetaPhaseFlatDetDispRatio(0.),mFrozenLatticePar(6),mFreezeLatticePar(false),mFrozenBMatrix(3,3),mGenHKLBMatrix(3,3)
 {
    VFN_DEBUG_MESSAGE("PowderPatternDiffraction::PowderPatternDiffraction()",10)
    mIsScalable=true;
@@ -806,6 +815,13 @@ mpLeBailData(0),mFrozenLatticePar(6),mFreezeLatticePar(false),mFrozenBMatrix(3,3
    mClockMaster.AddChild(mClockProfilePar);
    mClockMaster.AddChild(mClockLorentzPolarSlitCorrPar);
    mClockMaster.AddChild(mpReflectionProfile->GetClockMaster());
+   {
+      RefinablePar tmp("2ThetaFlatDetDispRatioPhase",&m2ThetaPhaseFlatDetDispRatio,-.05,.05,gpRefParTypeScattDataCorrPos,
+                       REFPAR_DERIV_STEP_ABSOLUTE,true,true,true,false,1.0);
+      tmp.AssignClock(mClockProfilePar);
+      tmp.SetDerivStep(1e-6);
+      this->AddPar(tmp);
+   }
    for(unsigned int i=0;i<3;++i) mFrozenLatticePar(i)=5;
    for(unsigned int i=3;i<6;++i) mFrozenLatticePar(i)=M_PI/2;
    mGenHKLBMatrix=0;
@@ -815,7 +831,7 @@ PowderPatternDiffraction::PowderPatternDiffraction(const PowderPatternDiffractio
 mpReflectionProfile(0),
 mCorrLorentz(*this),mCorrPolar(*this),mCorrSlitAperture(*this),
 mCorrTextureMarchDollase(*this),mCorrTextureEllipsoid(*this),mCorrTOF(*this),mCorrCylAbs(*this),mExtractionMode(false),
-mpLeBailData(0),mFrozenLatticePar(6),mFreezeLatticePar(old.FreezeLatticePar()),mFrozenBMatrix(3,3),mGenHKLBMatrix(3,3)
+mpLeBailData(0),m2ThetaPhaseFlatDetDispRatio(old.Get2ThetaPhaseFlatDetDispRatio()),mFrozenLatticePar(6),mFreezeLatticePar(old.FreezeLatticePar()),mFrozenBMatrix(3,3),mGenHKLBMatrix(3,3)
 {
    this->AddSubRefObj(mCorrTextureMarchDollase);
    this->AddSubRefObj(mCorrTextureEllipsoid);
@@ -831,6 +847,13 @@ mpLeBailData(0),mFrozenLatticePar(6),mFreezeLatticePar(old.FreezeLatticePar()),m
    mClockMaster.AddChild(mClockProfilePar);
    mClockMaster.AddChild(mClockLorentzPolarSlitCorrPar);
    mClockMaster.AddChild(mpReflectionProfile->GetClockMaster());
+   {
+      RefinablePar tmp("2ThetaFlatDetDispRatioPhase",&m2ThetaPhaseFlatDetDispRatio,-.05,.05,gpRefParTypeScattDataCorrPos,
+                       REFPAR_DERIV_STEP_ABSOLUTE,true,true,true,false,1.0);
+      tmp.AssignClock(mClockProfilePar);
+      tmp.SetDerivStep(1e-6);
+      this->AddPar(tmp);
+   }
    for(unsigned int i=0;i<6;++i) mFrozenLatticePar(i)=old.GetFrozenLatticePar(i);
    mGenHKLBMatrix=0;
 }
@@ -1272,6 +1295,26 @@ void PowderPatternDiffraction::FreezeLatticePar(const bool use)
 }
 
 bool PowderPatternDiffraction::FreezeLatticePar() const {return mFreezeLatticePar;}
+
+void PowderPatternDiffraction::Set2ThetaPhaseFlatDetDispRatio(const REAL ratio)
+{
+   m2ThetaPhaseFlatDetDispRatio=ratio;
+   mClockProfilePar.Click();
+}
+
+REAL PowderPatternDiffraction::Get2ThetaPhaseFlatDetDispRatio() const
+{
+   return m2ThetaPhaseFlatDetDispRatio;
+}
+
+REAL PowderPatternDiffraction::X2XCorrPhase(const REAL x) const
+{
+   REAL xc=mpParentPowderPattern->X2XCorr(x);
+   if(  (this->GetRadiation().GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
+      ||(this->GetRadiation().GetWavelengthType()==WAVELENGTH_ALPHA12))
+      xc += CalcFlatDetDispShift(x,m2ThetaPhaseFlatDetDispRatio);
+   return xc;
+}
 
 unsigned int PowderPatternDiffraction::GetProfileFitNetNbObs()const
 {
@@ -1834,10 +1877,10 @@ Computing all Profiles",5)
          VFN_DEBUG_MESSAGE("PowderPatternDiffraction::CalcPowderReflProfile()#"<<i,5)
          if(nbLine>1)
          {// we have several lines, not centered on the profile range
-            center = mpParentPowderPattern->X2XCorr(
+            center = this->X2XCorrPhase(
                         x0+2*tan(x0/2.0)*spectrumDeltaLambdaOvLambda(line));
          }
-         else center=mpParentPowderPattern->X2XCorr(x0);
+         else center=this->X2XCorrPhase(x0);
          REAL fact=1.0;
          if(!mUseFastLessPreciseFunc) fact=5.0;
          const REAL halfwidth=mpReflectionProfile->GetFullProfileWidth(0.04,center,mH(i),mK(i),mL(i))*fact;
@@ -1995,10 +2038,10 @@ Radiation must be either monochromatic, from an X-Ray Tube, or neutron TOF !!");
 
                if(nbLine>1)
                {// we have several lines, not centered on the profile range
-                  center = mpParentPowderPattern->X2XCorr(
+                  center = this->X2XCorrPhase(
                               x0+2*tan(x0/2.0)*spectrumDeltaLambdaOvLambda(line));
                }
-               else center=mpParentPowderPattern->X2XCorr(x0);
+               else center=this->X2XCorrPhase(x0);
 
                first=mvReflProfile[i].first;
                last=mvReflProfile[i].last;
@@ -2034,12 +2077,12 @@ Radiation must be either monochromatic, from an X-Ray Tube, or neutron TOF !!");
                         const REAL step=(*par)->GetDerivStep();
                         (*par)->Mutate(step);
                         REAL x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
-                        if(nbLine>1) dcenter = mpParentPowderPattern->X2XCorr(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
-                        else         dcenter = mpParentPowderPattern->X2XCorr(x1);
+                        if(nbLine>1) dcenter = this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
+                        else         dcenter = this->X2XCorrPhase(x1);
                         (*par)->Mutate(-2*step);
                         x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
-                        if(nbLine>1) dcenter-= mpParentPowderPattern->X2XCorr(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
-                        else         dcenter-= mpParentPowderPattern->X2XCorr(x1);
+                        if(nbLine>1) dcenter-= this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
+                        else         dcenter-= this->X2XCorrPhase(x1);
                         (*par)->Mutate(step);
                         dcenter/=2*step;
                      }
@@ -2913,7 +2956,9 @@ REAL PowderPattern::X2XCorr(const REAL x0)const
    REAL x=x0;
    if(  (mRadiation.GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
       ||(mRadiation.GetWavelengthType()==WAVELENGTH_ALPHA12))
-      x += m2ThetaDisplacement*cos(x/2) +m2ThetaTransparency*sin(x);
+      x += m2ThetaDisplacement*cos(x/2)
+         + m2ThetaTransparency*sin(x)
+         + CalcFlatDetDispShift(x,m2ThetaFlatDetDispRatio);
 
    return x+mXZero;
 }
