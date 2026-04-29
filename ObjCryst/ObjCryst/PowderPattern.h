@@ -411,9 +411,11 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       void FreezeLatticePar(const bool use);
       /// Do we use local cell parameters ? (see mFrozenLatticePar)
       bool FreezeLatticePar() const;
-      /// Change the phase-specific flat-detector displacement ratio correction
+      /// Change the phase-specific offset added to the pattern flat-detector
+      /// displacement ratio before applying the correction
       void Set2ThetaPhaseFlatDetDispRatio(const REAL ratio);
-      /// Get the phase-specific flat-detector displacement ratio correction
+      /// Get the phase-specific offset added to the pattern flat-detector
+      /// displacement ratio before applying the correction
       REAL Get2ThetaPhaseFlatDetDispRatio() const;
       /** Get the 'net' number of observed intensities, minus the number of reflections, for a profile fit.
       * This calculation takes into account where each reflection appears:
@@ -455,7 +457,8 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       virtual void InitOptions();
       virtual const CrystVector_long& GetBraggLimits()const;
       virtual void SetMaxSinThetaOvLambda(const REAL max);
-      /// Apply both pattern-global and phase-specific x corrections
+      /// Apply pattern-global x corrections and one flat-detector correction
+      /// using the sum of pattern and phase flat-detector ratios
       REAL X2XCorrPhase(const REAL x) const;
       /// This can use either locally stored lattice parameters from mLocalLatticePar,
       /// or the Crystal's, depending on mUseLocalLatticePar.
@@ -553,7 +556,8 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       bool mExtractionMode;
       /// Single crystal data extracted from the powder pattern.
       DiffractionDataSingleCrystal *mpLeBailData;
-      /// Phase-specific flat-detector transmission displacement ratio correction
+      /// Phase-specific offset added to the pattern flat-detector transmission
+      /// displacement ratio before applying the correction
       REAL m2ThetaPhaseFlatDetDispRatio;
       /// a,b and c in Angstroems, angles (stored) in radians
       /// This is used to override lattice parameter from the Crystal structure,
