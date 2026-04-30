@@ -56,15 +56,6 @@
 
 namespace ObjCryst
 {
-namespace
-{
-REAL CalcFlatDetDispShift(const REAL x, const REAL ratio)
-{
-   if(0.0==ratio) return 0.0;
-   return atan(ratio * sin(2*x) / (2 - 2 * ratio * pow(sin(x), 2)));
-}
-}
-
 ////////////////////////////////////////////////////////////////////////
 //
 //        Cylinder absorption correction
@@ -1313,8 +1304,12 @@ REAL PowderPatternDiffraction::X2XCorrPhase(const REAL x) const
    REAL xc=mpParentPowderPattern->X2XCorr(x);
    if(  (this->GetRadiation().GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
       ||(this->GetRadiation().GetWavelengthType()==WAVELENGTH_ALPHA12))
-      xc += CalcFlatDetDispShift(x,mpParentPowderPattern->Get2ThetaFlatDetDispRatio()
-                                  + m2ThetaPhaseFlatDetDispRatio);
+   {
+      const REAL ratio=mpParentPowderPattern->Get2ThetaFlatDetDispRatio()
+                      + m2ThetaPhaseFlatDetDispRatio;
+      if(0.0!=ratio)
+         xc += atan(ratio * sin(2*x) / (2 - 2 * ratio * pow(sin(x), 2)));
+   }
    return xc;
 }
 
