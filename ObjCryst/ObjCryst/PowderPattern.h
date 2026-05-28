@@ -443,6 +443,9 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       * sin(theta)/lambda value.
       */
       void SetFhklObsSq(const CrystVector_REAL &obs);
+      /// Apply pattern-global x corrections and one flat-detector correction
+      /// using the sum of pattern and phase flat-detector ratios.
+      REAL X2XCorrPhase(const REAL x) const;
    protected:
       virtual void CalcPowderPattern() const;
       virtual void CalcPowderPattern_FullDeriv(std::set<RefinablePar *> &vPar);
@@ -464,9 +467,6 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       virtual void InitOptions();
       virtual const CrystVector_long& GetBraggLimits()const;
       virtual void SetMaxSinThetaOvLambda(const REAL max);
-      /// Apply pattern-global x corrections and one flat-detector correction
-      /// using the sum of pattern and phase flat-detector ratios
-      REAL X2XCorrPhase(const REAL x) const;
       /// This can use either locally stored lattice parameters from mLocalLatticePar,
       /// or the Crystal's, depending on mUseLocalLatticePar.
       virtual const CrystMatrix_REAL& GetBMatrix()const;
