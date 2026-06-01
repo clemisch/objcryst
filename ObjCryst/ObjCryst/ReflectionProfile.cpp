@@ -83,6 +83,12 @@ ReflectionProfile::~ReflectionProfile()
 {}
 bool ReflectionProfile::IsAnisotropic()const
 {return false;}
+REAL ReflectionProfile::GetMicrostrainPpm()const
+{return 0.;}
+void ReflectionProfile::SetMicrostrainPpm(const REAL microstrain)
+{
+   throw ObjCrystException("ReflectionProfile::SetMicrostrainPpm(): microstrain broadening is not supported for this profile");
+}
 ////////////////////////////////////////////////////////////////////////
 //
 //    ReflectionProfilePseudoVoigt
@@ -91,6 +97,7 @@ bool ReflectionProfile::IsAnisotropic()const
 ReflectionProfilePseudoVoigt::ReflectionProfilePseudoVoigt():
 ReflectionProfile(),
 mCagliotiU(0),mCagliotiV(0),mCagliotiW(.01*DEG2RAD*DEG2RAD),mScherrerP(0),
+mMicrostrainPpm(0),
 mPseudoVoigtEta0(0.5),mPseudoVoigtEta1(0.0),
 mAsymBerarBaldinozziA0(0.0),mAsymBerarBaldinozziA1(0.0),
 mAsymBerarBaldinozziB0(0.0),mAsymBerarBaldinozziB1(0.0),
@@ -102,6 +109,7 @@ mAsym0(1.0),mAsym1(0.0),mAsym2(0.0)
 ReflectionProfilePseudoVoigt::ReflectionProfilePseudoVoigt
    (const ReflectionProfilePseudoVoigt &old):
 mCagliotiU(old.mCagliotiU),mCagliotiV(old.mCagliotiV),mCagliotiW(old.mCagliotiW),mScherrerP(old.mScherrerP),
+mMicrostrainPpm(old.mMicrostrainPpm),
 mPseudoVoigtEta0(old.mPseudoVoigtEta0),mPseudoVoigtEta1(old.mPseudoVoigtEta1),
 mAsymBerarBaldinozziA0(old.mAsymBerarBaldinozziA0),
 mAsymBerarBaldinozziA1(old.mAsymBerarBaldinozziA1),
@@ -149,6 +157,7 @@ CrystVector_REAL ReflectionProfilePseudoVoigt::GetProfile(const CrystVector_REAL
       fwhm=1e-6;
    }
    else fwhm=sqrt(fwhm);
+   fwhm += 1e-4*mMicrostrainPpm*tan(center/2.0);
    CrystVector_REAL profile,tmpV;
    const REAL asym=mAsym0+mAsym1/sin(center)+mAsym2/pow((REAL)sin(center),(REAL)2.0);
    profile=PowderProfileGauss(x,fwhm,center,asym);
@@ -174,7 +183,8 @@ void ReflectionProfilePseudoVoigt::SetProfilePar(const REAL fwhmCagliotiW,
                    const REAL fwhmCagliotiV,
                    const REAL eta0,
                    const REAL eta1,
-                   const REAL scherrerP)
+                   const REAL scherrerP,
+                   const REAL microstrain)
 {
    mCagliotiU=fwhmCagliotiU;
    mCagliotiV=fwhmCagliotiV;
@@ -182,6 +192,18 @@ void ReflectionProfilePseudoVoigt::SetProfilePar(const REAL fwhmCagliotiW,
    mPseudoVoigtEta0=eta0;
    mPseudoVoigtEta1=eta1;
    mScherrerP=scherrerP;
+   mMicrostrainPpm=microstrain;
+   mClockMaster.Click();
+}
+
+REAL ReflectionProfilePseudoVoigt::GetMicrostrainPpm()const
+{
+   return mMicrostrainPpm;
+}
+
+void ReflectionProfilePseudoVoigt::SetMicrostrainPpm(const REAL microstrain)
+{
+   mMicrostrainPpm=microstrain;
    mClockMaster.Click();
 }
 
@@ -200,6 +222,7 @@ REAL ReflectionProfilePseudoVoigt::GetFullProfileWidth(const REAL relativeIntens
              +mScherrerP/pow(cos(center/2.0),2);
    if(fwhm<=0) fwhm=1e-6;
    else fwhm=sqrt(fwhm);
+   fwhm += 1e-4*mMicrostrainPpm*tan(center/2.0);
    CrystVector_REAL prof;
    while(true)
    {
@@ -262,6 +285,14 @@ void ReflectionProfilePseudoVoigt::InitParameters()
                         REFPAR_DERIV_STEP_ABSOLUTE,true,true,true,false,RAD2DEG*RAD2DEG);
       tmp.AssignClock(mClockMaster);
       tmp.SetDerivStep(1e-9);
+      this->AddPar(tmp);
+   }
+   {
+      RefinablePar tmp("MicrostrainPPM",&mMicrostrainPpm,0,100000.,
+                        gpRefParTypeScattDataProfileWidth,
+                        REFPAR_DERIV_STEP_ABSOLUTE,true,true,true,false);
+      tmp.AssignClock(mClockMaster);
+      tmp.SetDerivStep(1.);
       this->AddPar(tmp);
    }
    {
@@ -351,6 +382,9 @@ void ReflectionProfilePseudoVoigt::XMLOutput(ostream &os,int indent)const
    this->GetPar(&mScherrerP).XMLOutput(os,"P",indent);
    os <<endl;
 
+   this->GetPar(&mMicrostrainPpm).XMLOutput(os,"MicrostrainPPM",indent);
+   os <<endl;
+
    this->GetPar(&mPseudoVoigtEta0).XMLOutput(os,"Eta0",indent);
    os <<endl;
 
@@ -424,6 +458,11 @@ void ReflectionProfilePseudoVoigt::XMLInput(istream &is,const XMLCrystTag &tagg)
                if("P"==tag.GetAttributeValue(i))
                {
                   this->GetPar(&mScherrerP).XMLInput(is,tag);
+                  break;
+               }
+               if("MicrostrainPPM"==tag.GetAttributeValue(i))
+               {
+                  this->GetPar(&mMicrostrainPpm).XMLInput(is,tag);
                   break;
                }
                if("Eta0"==tag.GetAttributeValue(i))

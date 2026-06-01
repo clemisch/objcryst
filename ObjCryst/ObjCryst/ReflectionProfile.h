@@ -85,6 +85,10 @@ class ReflectionProfile:public RefinableObj
                                        const REAL h, const REAL k, const REAL l)=0;
       /// Is the profile anisotropic ?
       virtual bool IsAnisotropic()const;
+      /// Get isotropic microstrain broadening in parts per million.
+      virtual REAL GetMicrostrainPpm()const;
+      /// Set isotropic microstrain broadening in parts per million.
+      virtual void SetMicrostrainPpm(const REAL microstrain);
       virtual void XMLOutput(ostream &os,int indent=0)const=0;
       virtual void XMLInput(istream &is,const XMLCrystTag &tag)=0;
    private:
@@ -120,7 +124,10 @@ class ReflectionProfilePseudoVoigt:public ReflectionProfile
                          const REAL fwhmCagliotiV=0,
                          const REAL eta0=0.5,
                          const REAL eta1=0.,
-                         const REAL scherrerP=0.);
+                         const REAL scherrerP=0.,
+                         const REAL microstrain=0.);
+      virtual REAL GetMicrostrainPpm()const;
+      virtual void SetMicrostrainPpm(const REAL microstrain);
       virtual REAL GetFullProfileWidth(const REAL relativeIntensity, const REAL xcenter,
                                        const REAL h, const REAL k, const REAL l);
       bool IsAnisotropic()const;
@@ -131,6 +138,8 @@ class ReflectionProfilePseudoVoigt:public ReflectionProfile
       void InitParameters();
       ///FWHM parameters, following Caglioti's law and a Scherrer-like term
       REAL mCagliotiU,mCagliotiV,mCagliotiW,mScherrerP;
+      /// Isotropic microstrain broadening in parts per million.
+      REAL mMicrostrainPpm;
       ///Pseudo-Voigt mixing parameter : eta=eta0 +2*theta*eta1
       /// eta=1 -> pure Lorentzian ; eta=0 -> pure Gaussian
       REAL mPseudoVoigtEta0,mPseudoVoigtEta1;
