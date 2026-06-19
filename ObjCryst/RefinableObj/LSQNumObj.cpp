@@ -700,12 +700,20 @@ void LSQNumObj::Refine (int nbCycle,bool useLevenbergMarquardt,
 
       if(!silent) this->PrintRefResults();
       TAU_PROFILE_STOP(timer7);
-      if( terminateOnDeltaChi2 && (minChi2var>( (ChisSqPreviousCycle-mChiSq)/abs(ChisSqPreviousCycle+1e-6) ) ) ) break;
-      // Absolute-Rwp termination: stop if the weighted profile R-factor improved
+      // Convergence: stop when the |relative variation| of Chi2 between cycles is
+      // below minChi2var. The magnitude (fabs) matters because (a) Levenberg-
+      // Marquardt permits a slight Chi2 *increase* (up to 1.0001x) and (b) very
+      // nonlinear problems may step uphill briefly before dropping further; a
+      // signed test would treat either as convergence for any non-negative
+      // minChi2var, with no control over how large an increase is tolerated.
+      if( terminateOnDeltaChi2 && (minChi2var> fabs( (ChisSqPreviousCycle-mChiSq)/abs(ChisSqPreviousCycle+1e-6) ) ) ) break;
+      // Absolute-Rwp termination: stop when the weighted profile R-factor *changed*
       // by less than minRwpVar (in percent; mRw is a fraction, hence the *100)
-      // during this cycle. Independent of the relative-Chi2 check above; disabled
-      // when minRwpVar<0.
-      if( (minRwpVar>=0) && ( (Rw_ini-mRw)*100.0 < minRwpVar ) ) break;
+      // during this cycle. Uses the magnitude (fabs) for the same reasons as above,
+      // so minRwpVar is a symmetric threshold: a change larger than it (in either
+      // direction) keeps the refinement going. Independent of the Chi2 check;
+      // disabled when minRwpVar<0.
+      if( (minRwpVar>=0) && ( fabs(Rw_ini-mRw)*100.0 < minRwpVar ) ) break;
    }
    if(callBeginEndOptimization) this->EndOptimization();
 }
