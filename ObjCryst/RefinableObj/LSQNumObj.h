@@ -93,10 +93,15 @@ class LSQNumObj
       * for objects where that would render derivative calculations imprecise.
       * \param minChi2var: used for termination of the refinement if the relative variation
       * of Chi2 between two successive cyles is less than minChi2var
+      * \param minRwpVar: used for termination of the refinement if the absolute variation
+      * of Rwp (weighted profile R-factor, in percent [0,100], so 0.1 corresponds to a
+      * 0.1 percentage-point change) between two successive cycles is less than minRwpVar.
+      * This check is independent of the (relative) minChi2var check and is performed
+      * regardless of the sign of nbCycle. A negative value (the default) disables it.
       */
       void Refine (int nbCycle=1,bool useLevenbergMarquardt=false,
                    const bool silent=false, const bool callBeginEndOptimization=true,
-                   const float minChi2var=0.01);
+                   const float minChi2var=0.01, const float minRwpVar=-1);
       /** Run a refinement in a 'safe' way: if the Chi2 value increases by more that a given factor
       * the parameters are reverted to their initial values. Moreover, the listed 'new' parameters
       * or parameter types are then fixed.
@@ -113,7 +118,7 @@ class LSQNumObj
                       REAL maxChi2factor=1.01,
                       int nbCycle=1, bool useLevenbergMarquardt=false,
                       const bool silent=false, const bool callBeginEndOptimization=true,
-                      const float minChi2var=0.01);
+                      const float minChi2var=0.01, const float minRwpVar=-1);
       CrystVector_REAL Sigma()const;
       CrystMatrix_REAL CorrelMatrix()const;
       void CalcRfactor()const;

@@ -105,7 +105,7 @@ void LSQNumObj::SetParIsUsed(const RefParType *type,const bool use)
 
 void LSQNumObj::Refine (int nbCycle,bool useLevenbergMarquardt,
                         const bool silent, const bool callBeginEndOptimization,
-                        const float minChi2var)
+                        const float minChi2var, const float minRwpVar)
 {
    TAU_PROFILE("LSQNumObj::Refine()","void ()",TAU_USER);
    TAU_PROFILE_TIMER(timer1,"LSQNumObj::Refine() 1 - Init","", TAU_FIELD);
@@ -699,6 +699,11 @@ void LSQNumObj::Refine (int nbCycle,bool useLevenbergMarquardt,
       if(!silent) this->PrintRefResults();
       TAU_PROFILE_STOP(timer7);
       if( terminateOnDeltaChi2 && (minChi2var>( (ChisSqPreviousCycle-mChiSq)/abs(ChisSqPreviousCycle+1e-6) ) ) ) break;
+      // Absolute-Rwp termination: stop if the weighted profile R-factor improved
+      // by less than minRwpVar (in percent; mRw is a fraction, hence the *100)
+      // during this cycle. Independent of the relative-Chi2 check above; disabled
+      // when minRwpVar<0.
+      if( (minRwpVar>=0) && ( (Rw_ini-mRw)*100.0 < minRwpVar ) ) break;
    }
    if(callBeginEndOptimization) this->EndOptimization();
 }
@@ -707,7 +712,7 @@ bool LSQNumObj::SafeRefine(std::list<RefinablePar*> vnewpar, std::list<const Ref
                                  REAL maxChi2factor,
                                  int nbCycle, bool useLevenbergMarquardt,
                                  const bool silent, const bool callBeginEndOptimization,
-                                 const float minChi2var)
+                                 const float minChi2var, const float minRwpVar)
 {
    if(callBeginEndOptimization) this->BeginOptimization();
    // :TODO: update mObs and mWeight in a centralized way... Not in BeginOptimization() (not always called)
@@ -732,7 +737,7 @@ bool LSQNumObj::SafeRefine(std::list<RefinablePar*> vnewpar, std::list<const Ref
    bool diverged = false;
    try
    {
-      this->Refine(nbCycle, useLevenbergMarquardt, silent, false, minChi2var);
+      this->Refine(nbCycle, useLevenbergMarquardt, silent, false, minChi2var, minRwpVar);
    }
    catch(const ObjCrystException &except)
    {
