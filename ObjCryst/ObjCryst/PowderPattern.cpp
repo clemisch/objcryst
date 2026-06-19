@@ -1813,7 +1813,7 @@ void PowderPatternDiffraction::CalcPowderPattern_FullDeriv(std::set<RefinablePar
             const long  specNbPoints=mpParentPowderPattern->GetNbPoint();
             mPowderPattern_FullDeriv[*par].resize(specNbPoints);
             mPowderPattern_FullDeriv[*par]=0;// :TODO: use only the number of points actually used
-            cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderPattern_FullDeriv():par="<<(*par)->GetName()<<endl;
+            //cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderPattern_FullDeriv():par="<<(*par)->GetName()<<endl;
             for(long i=0;i<mNbReflUsed;i += step)
             {
                if(mvReflProfile[i].profile.numElements()==0)
@@ -2229,7 +2229,7 @@ Computing all Profiles: Reflection #"<<i,5)
 void PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv(std::set<RefinablePar *> &vPar)
 {
    TAU_PROFILE("PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()","void (bool)",TAU_DEFAULT);
-   cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()"<<endl;
+   //cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()"<<endl;
    this->CalcPowderReflProfile();
    unsigned int nbLine=1;
    CrystVector_REAL spectrumDeltaLambdaOvLambda;

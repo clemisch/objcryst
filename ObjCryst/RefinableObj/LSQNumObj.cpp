@@ -52,6 +52,7 @@ LSQNumObj::LSQNumObj(string objName)
    mRw=0;
    mChiSq=0;
    mStopAfterCycle=false;
+   mUseFullDeriv=false;
 }
 
 LSQNumObj::~LSQNumObj()
@@ -182,26 +183,39 @@ void LSQNumObj::Refine (int nbCycle,bool useLevenbergMarquardt,
       //cout <<"obs:"<<FormatHorizVector<REAL>(calc0,10,8);
       //cout <<"calc:"<<FormatHorizVector<REAL>(mObs,10,8);
       //cout <<"weight:"<<FormatHorizVector<REAL>(mWeight,10,8);
-      #if 1
-      for(i=0;i<nbVar;i++)
+      if(!mUseFullDeriv)
       {
-         //:NOTE: Real design matrix is the transposed of the one computed here
-         //if(!silent) cout << "........." << mRefParList.GetParNotFixed(i).GetName() <<endl;
+         for(i=0;i<nbVar;i++)
+         {
+            //:NOTE: Real design matrix is the transposed of the one computed here
+            //if(!silent) cout << "........." << mRefParList.GetParNotFixed(i).GetName() <<endl;
 
-         tmpV1=this->GetLSQDeriv(mRefParList.GetParNotFixed(i));
-         pTmp1=tmpV1.data();
-         //cout <<"deriv#"<<i<<":"<<FormatHorizVector<REAL>(tmpV1,10,8);
-         for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
+            tmpV1=this->GetLSQDeriv(mRefParList.GetParNotFixed(i));
+            pTmp1=tmpV1.data();
+            //cout <<"deriv#"<<i<<":"<<FormatHorizVector<REAL>(tmpV1,10,8);
+            for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
+         }
       }
-      #else
-      this->GetLSQ_FullDeriv();
-      for(i=0;i<nbVar;i++)
+      else
       {
-         pTmp1=mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))].data();
-         //if(i>=(nbVar-2)) cout<<__FILE__<<":"<<__LINE__<<":"<<(mRefParList.GetParNotFixed(i)).GetName()<<"size="<<mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))].size()<<":"<<mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))]<<endl;
-         for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
+         this->GetLSQ_FullDeriv();
+         for(i=0;i<nbVar;i++)
+         {
+            // GetLSQ_FullDeriv() may return an empty (or missing) vector when a
+            // parameter has a null derivative; emit a zero column in that case
+            // (it gets caught as a singular parameter below).
+            CrystVector_REAL &dv=mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))];
+            if(dv.numElements()==nbObs)
+            {
+               pTmp1=dv.data();
+               for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
+            }
+            else
+            {
+               for(j=0;j<nbObs;j++) *pTmp2++ = 0;
+            }
+         }
       }
-      #endif
          //cout << designMatrix;
 
       TAU_PROFILE_STOP(timer2);
@@ -828,6 +842,9 @@ REAL LSQNumObj::ChiSquare()const{return mChiSq;};
 
 const std::vector<REAL>& LSQNumObj::GetRwHistory()const{return mvRwHistory;};
 
+void LSQNumObj::SetUseLSQFullDeriv(const bool useFullDeriv){mUseFullDeriv=useFullDeriv;};
+bool LSQNumObj::GetUseLSQFullDeriv()const{return mUseFullDeriv;};
+
 
 void RecursiveVecFunc(RefinableObj &obj, vector<pair<RefinableObj*,unsigned int>> &thevec, const unsigned int value)
 {
@@ -1043,7 +1060,7 @@ const std::map<RefinablePar*,CrystVector_REAL>& LSQNumObj::GetLSQ_FullDeriv()
          if(d->second.size()==0)
          {  //derivative can be null and then the vector missing
             // But we must still fill in zeros
-            cout<<__FILE__<<":"<<__LINE__<<":"<<pos.first->GetClassName()<<":"<<pos.first->GetName()<<":"<<d->first->GetName()<<" (all deriv=0)"<<endl;
+            //cout<<__FILE__<<":"<<__LINE__<<":"<<pos.first->GetClassName()<<":"<<pos.first->GetName()<<":"<<d->first->GetName()<<" (all deriv=0)"<<endl;
             for(unsigned long j=0;j<n2;++j) *p2++ = 0;
          }
          else

@@ -131,6 +131,12 @@ class LSQNumObj
       /// the last Refine() call: one entry per completed LM cycle. Cleared at the
       /// start of each Refine().
       const std::vector<REAL>& GetRwHistory()const;
+      /// If true, Refine() builds the design matrix via the GetLSQ_FullDeriv()
+      /// path (all derivatives at once, reusing structure factors / per-reflection
+      /// profile derivatives) instead of one full numerical GetLSQDeriv() per
+      /// parameter. Much faster for powder refinements; defaults to false.
+      void SetUseLSQFullDeriv(const bool useFullDeriv);
+      bool GetUseLSQFullDeriv()const;
       /** Choose the object to refine. The minimization will be done
       * against its LSQ function and its parameters, as well as the LSQ functions
       * and parameters of its sub-objects (if recursive==true)
@@ -255,6 +261,9 @@ class LSQNumObj
       int mIndexValuesSetInitial, mIndexValuesSetLast;
       /// If true, then stop at the end of the cycle. Used in multi-threading environment
       bool mStopAfterCycle;
+      /// If true, Refine() uses the GetLSQ_FullDeriv() design-matrix path. See
+      /// SetUseLSQFullDeriv(). Defaults to false (per-parameter numerical derivatives).
+      bool mUseFullDeriv;
       // The optimized object
       //RefinableObj *mpRefinedObj;
       // The index of the LSQ function in the refined object (if there are several...)
