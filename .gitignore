@@ -44,3 +44,5 @@ cctbx/gnu.mak
 /Fox/Release
 cctbx/gnu.mak
 *.vcxproj.user
+
+.codex
