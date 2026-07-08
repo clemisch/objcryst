@@ -1545,6 +1545,24 @@ REAL PowderPatternDiffraction::X2XCorrPhase(const REAL x) const
    return xc;
 }
 
+REAL PowderPatternDiffraction::X2XCorrPhaseDerivX(const REAL x) const
+{
+   REAL d=mpParentPowderPattern->X2XCorrDerivX(x);
+   if(  (this->GetRadiation().GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
+      ||(this->GetRadiation().GetWavelengthType()==WAVELENGTH_ALPHA12))
+   {
+      const REAL ratio=mpParentPowderPattern->Get2ThetaFlatDetDispRatio()
+                      + m2ThetaPhaseFlatDetDispRatio;
+      if(0.0!=ratio)
+      {// d/dx atan(u/v) = (u'v-uv')/(u^2+v^2)
+         const REAL u=ratio*sin(2*x), v=2-2*ratio*pow(sin(x),2);
+         const REAL du=2*ratio*cos(2*x), dv=-2*ratio*sin(2*x);
+         d += (du*v-u*dv)/(u*u+v*v);
+      }
+   }
+   return d;
+}
+
 unsigned int PowderPatternDiffraction::GetProfileFitNetNbObs()const
 {
    unsigned int nb=0;
@@ -1813,7 +1831,6 @@ void PowderPatternDiffraction::CalcPowderPattern_FullDeriv(std::set<RefinablePar
             const long  specNbPoints=mpParentPowderPattern->GetNbPoint();
             mPowderPattern_FullDeriv[*par].resize(specNbPoints);
             mPowderPattern_FullDeriv[*par]=0;// :TODO: use only the number of points actually used
-            cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderPattern_FullDeriv():par="<<(*par)->GetName()<<endl;
             for(long i=0;i<mNbReflUsed;i += step)
             {
                if(mvReflProfile[i].profile.numElements()==0)
@@ -2229,8 +2246,36 @@ Computing all Profiles: Reflection #"<<i,5)
 void PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv(std::set<RefinablePar *> &vPar)
 {
    TAU_PROFILE("PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()","void (bool)",TAU_DEFAULT);
-   cout<<__FILE__<<":"<<__LINE__<<":PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()"<<endl;
    this->CalcPowderReflProfile();
+   mvReflProfile_FullDeriv.clear();
+
+   // This computes the derivatives of the reflection *profiles* only (peak shape
+   // and peak position). For unit-cell parameters, only the reflection-position
+   // contribution is included here: the dependence of the reflection *intensities*
+   // on the cell (through the sin(theta)/lambda dependence of the Lorentz-polarization
+   // correction and structure factors) is handled - if at all - by the separate
+   // intensity-derivative machinery (CalcIhkl_FullDeriv), consistent with the rest
+   // of ObjCryst's analytical derivatives.
+   //
+   // Sort the parameters: profile-shape parameters (analytical derivatives are
+   // handled by the ReflectionProfile object itself), and parameters shifting the
+   // reflection centers (analytical derivatives of the center for unit cell and
+   // position correction (zero, displacement, transparency) parameters, numerical
+   // derivatives otherwise (e.g. wavelength)).
+   std::set<RefinablePar*> vProfilePar;
+   std::vector<RefinablePar*> vCenterPar;
+   for(std::set<RefinablePar*>::iterator par=vPar.begin();par!=vPar.end();++par)
+   {
+      if(*par==0) continue;
+      if((*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile))
+         vProfilePar.insert(*par);
+      else if(  (*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeRadiation)
+              ||(*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell)
+              ||(*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos))
+         vCenterPar.push_back(*par);
+   }
+   if(vProfilePar.empty()&&vCenterPar.empty()) return;
+
    unsigned int nbLine=1;
    CrystVector_REAL spectrumDeltaLambdaOvLambda;
    CrystVector_REAL spectrumFactor;//relative weigths of different lines of X-Ray tube
@@ -2271,108 +2316,141 @@ void PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv(std::set<Refinabl
       default: throw ObjCrystException("PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv():\
 Radiation must be either monochromatic, from an X-Ray Tube, or neutron TOF !!");
    }
+
+   // How is d(center)/d(par) computed for each center-shifting parameter ?
+   enum CenterDerivMode {CENTER_DERIV_ZERO,     // parameter does not shift the centers
+                         CENTER_DERIV_CORRPOS,  // analytical, zero/displacement/transparency
+                         CENTER_DERIV_LATTICE,  // analytical, unit cell parameters
+                         CENTER_DERIV_NUMERIC}; // numerical (e.g. wavelength)
+   std::vector<CenterDerivMode> vCenterMode(vCenterPar.size());
+   std::vector<CrystMatrix_REAL> vdGstar(vCenterPar.size());
+   bool needCenterDeriv=false;
+   for(unsigned int j=0;j<vCenterPar.size();j++)
+   {
+      if(vCenterPar[j]->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos))
+         vCenterMode[j]=CENTER_DERIV_CORRPOS;// X2XCorrDeriv() returns 0 if not from the parent pattern
+      else if(vCenterPar[j]->GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell))
+      {
+         vCenterMode[j]=CENTER_DERIV_ZERO;
+         if(!(this->FreezeLatticePar()))
+         {// null derivative if the parameter is from another Crystal, or is
+          // fixed by the lattice symmetry constraints
+            vdGstar[j]=this->GetCrystal().GetReciprocalMetricTensorDeriv(*(vCenterPar[j]));
+            for(unsigned int m=0;m<9;m++)
+               if(vdGstar[j].data()[m]!=0) {vCenterMode[j]=CENTER_DERIV_LATTICE;break;}
+         }
+      }
+      else vCenterMode[j]=CENTER_DERIV_NUMERIC;
+      if(vCenterMode[j]!=CENTER_DERIV_ZERO) needCenterDeriv=true;
+   }
+
    REAL center,// center of current reflection (depends on line if several)
         x0;    // theoretical (uncorrected for zero's, etc..) position of center of line
    long first,last;// first & last point of the stored profile
-   CrystVector_REAL vx,reflProfile,tmpV;
+   CrystVector_REAL vx,reflProfile;
 
-   // Derivative vs the shift of the reflection center
-   vector<CrystVector_REAL> vReflProfile_DerivCenter(mNbReflUsed);
-
-   mvReflProfile_FullDeriv.clear();
-   for(std::set<RefinablePar*>::iterator par=vPar.begin();par!=vPar.end();++par)
+   for(unsigned int line=0;line<nbLine;line++)
    {
-      if(*par==0) continue;
-      if(  (*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeRadiation)
-         ||(*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell)
-         ||(*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos)
-         ||(*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile))
+      for(long i=0;i<mNbReflUsed;i++)
       {
-         mvReflProfile_FullDeriv[*par].resize(mNbReflUsed);
+         x0=mpParentPowderPattern->STOL2X(mSinThetaLambda(i));
 
-         for(unsigned int line=0;line<nbLine;line++)
+         REAL xline=x0, dxline_dx0=1.0;
+         if(nbLine>1)
+         {// we have several lines, not centered on the profile range
+            xline=x0+2*tan(x0/2.0)*spectrumDeltaLambdaOvLambda(line);
+            const REAL c0=cos(x0/2.0);
+            dxline_dx0=1+spectrumDeltaLambdaOvLambda(line)/(c0*c0);
+         }
+         center=this->X2XCorrPhase(xline);
+
+         first=mvReflProfile[i].first;
+         last=mvReflProfile[i].last;
+         if((last<0)||(first>=(long)(mpParentPowderPattern->GetNbPoint()))) continue;
+         vx.resize(last-first+1);
          {
-            for(long i=0;i<mNbReflUsed;i++)
+            const REAL *p0=mpParentPowderPattern->GetPowderPatternX().data()+first;
+            REAL *p1=vx.data();
+            for(long j=first;j<=last;j++) *p1++ = *p0++;
+         }
+
+         std::map<RefinablePar*,CrystVector_REAL> vDeriv
+            =mpReflectionProfile->GetProfileDeriv(vx,center,mH(i),mK(i),mL(i),
+                                                  vProfilePar,needCenterDeriv);
+
+         // Profile-shape parameters
+         for(std::map<RefinablePar*,CrystVector_REAL>::iterator pos=vDeriv.begin();
+             pos!=vDeriv.end();++pos)
+         {
+            if(pos->first==0) continue;// derivative vs the center, used below
+            if(pos->second.numElements()==0) continue;
+            vector<CrystVector_REAL> &vv=mvReflProfile_FullDeriv[pos->first];
+            if(vv.size()==0) vv.resize(mNbReflUsed);
+            if(nbLine>1)
             {
-               x0=mpParentPowderPattern->STOL2X(mSinThetaLambda(i));
+               reflProfile=pos->second;
+               reflProfile*=spectrumFactor(line);
+               if(vv[i].numElements()==0) vv[i]=reflProfile;
+               else vv[i]+=reflProfile;
+            }
+            else vv[i]=pos->second;
+         }
 
-               if(nbLine>1)
-               {// we have several lines, not centered on the profile range
-                  center = this->X2XCorrPhase(
-                              x0+2*tan(x0/2.0)*spectrumDeltaLambdaOvLambda(line));
-               }
-               else center=this->X2XCorrPhase(x0);
-
-               first=mvReflProfile[i].first;
-               last=mvReflProfile[i].last;
-               if((last>=0)&&(first<(long)(mpParentPowderPattern->GetNbPoint())))
-                  vx.resize(last-first+1);
-               else vx.resize(0);
-               vx.resize(last-first+1);
-               if((last>=0)&&(first<(long)(mpParentPowderPattern->GetNbPoint())))
+         // Parameters shifting the reflection centers:
+         // d(profile)/d(par) = d(profile)/d(center) * d(center)/d(par)
+         if(needCenterDeriv)
+         {
+            const CrystVector_REAL &dProfdCenter=vDeriv[(RefinablePar*)0];
+            for(unsigned int j=0;j<vCenterPar.size();j++)
+            {
+               REAL dcenter=0;
+               switch(vCenterMode[j])
                {
-                  {
-                     const REAL *p0=mpParentPowderPattern->GetPowderPatternX().data()+first;
-                     REAL *p1=vx.data();
-                     for(long i=first;i<=last;i++) *p1++ = *p0++;
+                  case CENTER_DERIV_ZERO: break;
+                  case CENTER_DERIV_CORRPOS:
+                  {// zero shift, sample displacement, sample transparency
+                     dcenter=mpParentPowderPattern->X2XCorrDeriv(xline,*(vCenterPar[j]));
+                     break;
                   }
-
-                  if((*par)->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile))
-                  {// Parameter only affects profile
-                     //if(i==0) cout<<"PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()par="<<(*par)->GetName()<<":refl #"<<i<<endl;
-                     //:TODO: analytical derivatives
-                     const REAL step=(*par)->GetDerivStep();
-                     (*par)->Mutate(step);
-                     reflProfile=mpReflectionProfile->GetProfile(vx,center,mH(i),mK(i),mL(i));
-                     (*par)->Mutate(-2*step);
-                     reflProfile-=mpReflectionProfile->GetProfile(vx,center,mH(i),mK(i),mL(i));
-                     (*par)->Mutate(step);
-                     reflProfile/=2*step;
+                  case CENTER_DERIV_LATTICE:
+                  {// d(1/d^2)/d(par) = hkl^T * dG*/d(par) * hkl , and stol=1/(2d)
+                     const REAL stol=mSinThetaLambda(i);
+                     if(stol<=0) break;
+                     const CrystMatrix_REAL &dG=vdGstar[j];
+                     const REAL h=mH(i),k=mK(i),l=mL(i);
+                     const REAL dinvd2= h*(dG(0,0)*h+dG(0,1)*k+dG(0,2)*l)
+                                       +k*(dG(1,0)*h+dG(1,1)*k+dG(1,2)*l)
+                                       +l*(dG(2,0)*h+dG(2,1)*k+dG(2,2)*l);
+                     dcenter=this->X2XCorrPhaseDerivX(xline)*dxline_dx0
+                             *mpParentPowderPattern->STOL2XDeriv(stol)
+                             *dinvd2/(8*stol);
+                     break;
                   }
-                  else
-                  {// Parameter affects reflection center
-                     REAL dcenter=0;
-                     {
-                        //:TODO: analytical derivatives
-                        const REAL step=(*par)->GetDerivStep();
-                        (*par)->Mutate(step);
-                        REAL x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
-                        if(nbLine>1) dcenter = this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
-                        else         dcenter = this->X2XCorrPhase(x1);
-                        (*par)->Mutate(-2*step);
-                        x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
-                        if(nbLine>1) dcenter-= this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
-                        else         dcenter-= this->X2XCorrPhase(x1);
-                        (*par)->Mutate(step);
-                        dcenter/=2*step;
-                     }
-
-                     if(dcenter!=0)
-                     {
-                        //if(i==0) cout<<"PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()par="<<(*par)->GetName()<<":refl #"<<i<<", dcenter="<<setw(8)<<dcenter<<endl;
-                        if(vReflProfile_DerivCenter[i].size()==0)
-                        {
-                           const REAL step=1e-4;//:TODO: adapt for TOF
-                           vReflProfile_DerivCenter[i] =mpReflectionProfile->GetProfile(vx,center+step,mH(i),mK(i),mL(i));
-                           vReflProfile_DerivCenter[i]-=mpReflectionProfile->GetProfile(vx,center-step,mH(i),mK(i),mL(i));
-                           vReflProfile_DerivCenter[i]/=2*step;
-                        }
-                        reflProfile=vReflProfile_DerivCenter[i];
-                        reflProfile*=dcenter;
-                     }
-                     else
-                     {
-                        //if(i==0) cout<<"PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv()par="<<(*par)->GetName()<<":refl #"<<i<<" => Parameter affects nothing ?"<<endl;
-                        reflProfile.resize(0);
-                     }
-                  }
-                  if(reflProfile.size()>0)
-                  {
-                     if(nbLine>1) reflProfile *=spectrumFactor(line);
-                     if(line==0) mvReflProfile_FullDeriv[*par][i] = reflProfile;
-                     else mvReflProfile_FullDeriv[*par][i] += reflProfile;
+                  case CENTER_DERIV_NUMERIC:
+                  {// e.g. wavelength
+                     RefinablePar *p=vCenterPar[j];
+                     const REAL step=p->GetDerivStep();
+                     p->Mutate(step);
+                     REAL x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
+                     if(nbLine>1) dcenter = this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
+                     else         dcenter = this->X2XCorrPhase(x1);
+                     p->Mutate(-2*step);
+                     x1=mpParentPowderPattern->STOL2X(this->CalcSinThetaLambda(mH(i),mK(i),mL(i)));
+                     if(nbLine>1) dcenter-= this->X2XCorrPhase(x1+2*tan(x1/2.0)*spectrumDeltaLambdaOvLambda(line));
+                     else         dcenter-= this->X2XCorrPhase(x1);
+                     p->Mutate(step);
+                     dcenter/=2*step;
+                     break;
                   }
                }
+               if(dcenter==0) continue;
+               vector<CrystVector_REAL> &vv=mvReflProfile_FullDeriv[vCenterPar[j]];
+               if(vv.size()==0) vv.resize(mNbReflUsed);
+               reflProfile=dProfdCenter;
+               if(nbLine>1) reflProfile*=dcenter*spectrumFactor(line);
+               else reflProfile*=dcenter;
+               if(vv[i].numElements()==0) vv[i]=reflProfile;
+               else vv[i]+=reflProfile;
             }
          }
       }
@@ -3232,6 +3310,29 @@ REAL PowderPattern::X2XCorr(const REAL x0)const
          + m2ThetaTransparency*sin(x);
 
    return x+mXZero;
+}
+
+REAL PowderPattern::X2XCorrDeriv(const REAL x0, const RefinablePar &par)const
+{
+   const REAL *p=par.GetPointer();
+   if(p==&mXZero) return 1.0;
+   if(  (mRadiation.GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
+      ||(mRadiation.GetWavelengthType()==WAVELENGTH_ALPHA12))
+   {
+      if(p==&m2ThetaDisplacement) return cos(x0/2);
+      if(p==&m2ThetaTransparency) return sin(x0);
+   }
+   return 0.0;
+}
+
+REAL PowderPattern::X2XCorrDerivX(const REAL x0)const
+{
+   REAL d=1.0;
+   if(  (mRadiation.GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
+      ||(mRadiation.GetWavelengthType()==WAVELENGTH_ALPHA12))
+      d += -m2ThetaDisplacement*sin(x0/2)/2
+          + m2ThetaTransparency*cos(x0);
+   return d;
 }
 
 REAL PowderPattern::X2PixelCorr(const REAL x0)const
@@ -5692,6 +5793,33 @@ const CrystVector_REAL&
    return mPowderPatternUsedWeight;
 }
 
+const CrystVector_REAL& PowderPattern::GetLSQDeriv(const unsigned int idx, RefinablePar &par)
+{
+   // Use the same derivatives as GetLSQ_FullDeriv - analytical whenever possible,
+   // and only recomputing the profiles & intensities affected by this parameter.
+   // The _FullDeriv functions skip fixed parameters, but this function must
+   // compute the derivative even for a fixed parameter (like the base class version).
+   const bool wasFixed=par.IsFixed();
+   if(wasFixed) par.SetIsFixed(false);
+   std::set<RefinablePar*> vPar;
+   vPar.insert(&par);
+   std::map<RefinablePar*, CrystVector_REAL> &vDeriv=this->GetLSQ_FullDeriv(idx,vPar);
+   if(wasFixed) par.SetIsFixed(true);
+   const unsigned long nb=this->GetLSQCalc(idx).numElements();
+   std::map<RefinablePar*, CrystVector_REAL>::iterator pos=vDeriv.find(&par);
+   if((pos==vDeriv.end())||(pos->second.numElements()==0))
+   {// Parameter does not affect the pattern
+      mLSQDeriv.resize(nb);
+      mLSQDeriv=0;
+      return mLSQDeriv;
+   }
+   mLSQDeriv=pos->second;
+   // Derivatives of the full pattern are computed for all points, the LSQ
+   // functions only use the first mNbPointUsed points.
+   if(mLSQDeriv.numElements()>(long)nb) mLSQDeriv.resizeAndPreserve(nb);
+   return mLSQDeriv;
+}
+
 std::map<RefinablePar*, CrystVector_REAL>& PowderPattern::GetLSQ_FullDeriv(const unsigned int idx,std::set<RefinablePar *> &vPar)
 {
    TAU_PROFILE("PowderPattern::GetLSQ_FullDeriv()","void ()",TAU_DEFAULT);
@@ -5799,6 +5927,19 @@ REAL PowderPattern::STOL2X(const REAL stol)const
       if(abs(x)<1.0) x=2*asin(x); else x=2*M_PI;
    }
    return x;
+}
+
+REAL PowderPattern::STOL2XDeriv(const REAL stol)const
+{
+   if(this->GetRadiation().GetWavelengthType()==WAVELENGTH_TOF)
+   {
+      if(stol<=0) return 0;
+      const REAL t=1.0/(2*stol);// x = DIFC*t + DIFA*t^2, dt/dstol = -2*t^2
+      return -(mDIFC+2.0*mDIFA*t)*2.0*t*t;
+   }
+   const REAL s=stol*this->GetWavelength();
+   if(abs(s)>=1.0) return 0;// X2STOL clamps x to 2*pi
+   return 2*this->GetWavelength()/sqrt(1-s*s);
 }
 
 REAL PowderPattern::X2STOL(const REAL x)const

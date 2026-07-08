@@ -346,6 +346,100 @@ REAL UnitCell::GetVolume()const
             +2*cos(alpha)*cos(beta)*cos(gamma));
 }
 
+CrystMatrix_REAL UnitCell::GetReciprocalMetricTensorDeriv(const RefinablePar &par) const
+{
+   CrystMatrix_REAL dGstar(3,3);
+   dGstar=0;
+   // Which stored lattice parameter is this ?
+   int idx=-1;
+   for(int i=0;i<6;i++) if(par.GetPointer()==(mCellDim.data()+i)) {idx=i;break;}
+   if(idx<0) return dGstar;
+
+   // Constraint mapping: which *effective* lattice parameters (as returned by
+   // GetLatticePar()) change when this stored parameter changes ? Must follow
+   // exactly the constraints applied in UnitCell::GetLatticePar().
+   bool vAffected[6]={false,false,false,false,false,false};
+   vAffected[idx]=true;
+   const int num=mSpaceGroup.GetSpaceGroupNumber();
+   if((num>2)&&(mConstrainLatticeToSpaceGroup.GetChoice()==0))
+   {
+      if(num<=15)
+      {// Monoclinic: two angles are fixed to pi/2
+         const int ax=mSpaceGroup.GetUniqueAxis();
+         if((idx>=3)&&(idx!=(ax+3))) vAffected[idx]=false;
+      }
+      else if(num<=74)
+      {// Orthorhombic
+         if(idx>=3) vAffected[idx]=false;
+      }
+      else if(num<=142)
+      {// Tetragonal: b=a, c free
+         if(idx==0) vAffected[1]=true;
+         if((idx==1)||(idx>=3)) vAffected[idx]=false;
+      }
+      else if(mSpaceGroup.GetExtension()=='R')
+      {// Rhombohedral: b=c=a, beta=gamma=alpha
+         if(idx==0) {vAffected[1]=true;vAffected[2]=true;}
+         else if(idx==3) {vAffected[4]=true;vAffected[5]=true;}
+         else vAffected[idx]=false;
+      }
+      else if(num<=194)
+      {// Trigonal/hexagonal (hexagonal axes): b=a, c free
+         if(idx==0) vAffected[1]=true;
+         if((idx==1)||(idx>=3)) vAffected[idx]=false;
+      }
+      else
+      {// Cubic: b=c=a
+         if(idx==0) {vAffected[1]=true;vAffected[2]=true;}
+         if(idx>=1) vAffected[idx]=false;
+      }
+   }
+   if(!(vAffected[0]||vAffected[1]||vAffected[2]||vAffected[3]||vAffected[4]||vAffected[5]))
+      return dGstar;
+
+   // Direct-space metric tensor G and its derivative dG/dpar, using the
+   // effective (constrained) lattice parameters
+   const CrystVector_REAL cell=this->GetLatticePar();
+   const REAL a=cell(0), b=cell(1), c=cell(2);
+   const REAL ca=cos(cell(3)), cb=cos(cell(4)), cg=cos(cell(5));
+   const REAL sa=sin(cell(3)), sb=sin(cell(4)), sg=sin(cell(5));
+   const REAL G[3][3]={{a*a   , a*b*cg, a*c*cb},
+                       {a*b*cg, b*b   , b*c*ca},
+                       {a*c*cb, b*c*ca, c*c   }};
+   REAL dG[3][3]={{0,0,0},{0,0,0},{0,0,0}};
+   if(vAffected[0]) {dG[0][0]+=2*a; dG[0][1]+=b*cg; dG[1][0]+=b*cg; dG[0][2]+=c*cb; dG[2][0]+=c*cb;}
+   if(vAffected[1]) {dG[1][1]+=2*b; dG[0][1]+=a*cg; dG[1][0]+=a*cg; dG[1][2]+=c*ca; dG[2][1]+=c*ca;}
+   if(vAffected[2]) {dG[2][2]+=2*c; dG[0][2]+=a*cb; dG[2][0]+=a*cb; dG[1][2]+=b*ca; dG[2][1]+=b*ca;}
+   if(vAffected[3]) {dG[1][2]+=-b*c*sa; dG[2][1]+=-b*c*sa;}
+   if(vAffected[4]) {dG[0][2]+=-a*c*sb; dG[2][0]+=-a*c*sb;}
+   if(vAffected[5]) {dG[0][1]+=-a*b*sg; dG[1][0]+=-a*b*sg;}
+
+   // G* = G^-1, and dG*/dpar = -G^-1 (dG/dpar) G^-1
+   REAL Ginv[3][3];
+   {
+      const REAL det= G[0][0]*(G[1][1]*G[2][2]-G[1][2]*G[2][1])
+                     -G[0][1]*(G[1][0]*G[2][2]-G[1][2]*G[2][0])
+                     +G[0][2]*(G[1][0]*G[2][1]-G[1][1]*G[2][0]);
+      Ginv[0][0]= (G[1][1]*G[2][2]-G[1][2]*G[2][1])/det;
+      Ginv[0][1]=-(G[0][1]*G[2][2]-G[0][2]*G[2][1])/det;
+      Ginv[0][2]= (G[0][1]*G[1][2]-G[0][2]*G[1][1])/det;
+      Ginv[1][0]=Ginv[0][1];
+      Ginv[1][1]= (G[0][0]*G[2][2]-G[0][2]*G[2][0])/det;
+      Ginv[1][2]=-(G[0][0]*G[1][2]-G[0][2]*G[1][0])/det;
+      Ginv[2][0]=Ginv[0][2];
+      Ginv[2][1]=Ginv[1][2];
+      Ginv[2][2]= (G[0][0]*G[1][1]-G[0][1]*G[1][0])/det;
+   }
+   REAL tmp[3][3];// (dG/dpar) G^-1
+   for(int i=0;i<3;i++)
+      for(int j=0;j<3;j++)
+         tmp[i][j]=dG[i][0]*Ginv[0][j]+dG[i][1]*Ginv[1][j]+dG[i][2]*Ginv[2][j];
+   for(int i=0;i<3;i++)
+      for(int j=0;j<3;j++)
+         dGstar(i,j)=-(Ginv[i][0]*tmp[0][j]+Ginv[i][1]*tmp[1][j]+Ginv[i][2]*tmp[2][j]);
+   return dGstar;
+}
+
 void UnitCell::Init(const REAL a, const REAL b, const REAL c, const REAL alpha,
                     const REAL beta, const REAL gamma,const string &SpaceGroupId,
                     const string& name)

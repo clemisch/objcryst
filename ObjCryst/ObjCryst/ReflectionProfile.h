@@ -79,6 +79,27 @@ class ReflectionProfile:public RefinableObj
       */
       virtual CrystVector_REAL GetProfile(const CrystVector_REAL &x, const REAL xcenter,
                                   const REAL h, const REAL k, const REAL l)const=0;
+      /** Get the derivatives of the reflection profile versus profile parameters,
+      * and (optionally) versus the position of the reflection center.
+      *
+      *\param x: the vector of x coordinates (i.e. either 2theta or time-of-flight)
+      *\param xcenter: coordinate (2theta, tof) of the center of the peak
+      *\param h,k,l: reflection Miller indices
+      *\param vPar: the set of parameters for which derivatives are needed. Parameters
+      * which do not affect this profile may be omitted from the returned map, or
+      * associated to a null (zero-sized) vector.
+      *\param derivCenter: if true, the derivative of the profile versus the center
+      * position is also computed, and stored in the map with a null (0) key.
+      *\return a map associating to each parameter the derivative of the profile.
+      *
+      * The default implementation uses numerical derivatives; derived classes
+      * should override this with analytical derivatives whenever possible.
+      */
+      virtual std::map<RefinablePar*,CrystVector_REAL> GetProfileDeriv
+                                 (const CrystVector_REAL &x, const REAL xcenter,
+                                  const REAL h, const REAL k, const REAL l,
+                                  const std::set<RefinablePar*> &vPar,
+                                  const bool derivCenter=false);
       /// Get the (approximate) full profile width at a given percentage
       /// of the profile maximum (e.g. FWHM=GetFullProfileWidth(0.5)).
       virtual REAL GetFullProfileWidth(const REAL relativeIntensity, const REAL xcenter,
@@ -111,6 +132,17 @@ class ReflectionProfilePseudoVoigt:public ReflectionProfile
       virtual const string& GetClassName()const;
       CrystVector_REAL GetProfile(const CrystVector_REAL &x, const REAL xcenter,
                                   const REAL h, const REAL k, const REAL l)const;
+      /** Get the derivatives of the reflection profile versus profile parameters
+      * (U,V,W,P,MicrostrainPPM,Eta0,Eta1,Asym0,Asym1,Asym2) and (optionally) versus
+      * the position of the reflection center (see ReflectionProfile::GetProfileDeriv).
+      *
+      * All derivatives are computed analytically.
+      */
+      virtual std::map<RefinablePar*,CrystVector_REAL> GetProfileDeriv
+                                 (const CrystVector_REAL &x, const REAL xcenter,
+                                  const REAL h, const REAL k, const REAL l,
+                                  const std::set<RefinablePar*> &vPar,
+                                  const bool derivCenter=false);
       /** Set reflection profile parameters
       *
       * \param fwhmCagliotiW,fwhmCagliotiU,fwhmCagliotiV : these are the U,V and W

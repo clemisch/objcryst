@@ -1043,7 +1043,6 @@ const std::map<RefinablePar*,CrystVector_REAL>& LSQNumObj::GetLSQ_FullDeriv()
          if(d->second.size()==0)
          {  //derivative can be null and then the vector missing
             // But we must still fill in zeros
-            cout<<__FILE__<<":"<<__LINE__<<":"<<pos.first->GetClassName()<<":"<<pos.first->GetName()<<":"<<d->first->GetName()<<" (all deriv=0)"<<endl;
             for(unsigned long j=0;j<n2;++j) *p2++ = 0;
          }
          else

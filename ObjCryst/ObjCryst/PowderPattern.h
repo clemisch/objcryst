@@ -505,6 +505,8 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       /// Apply pattern-global x corrections and one flat-detector correction
       /// using the sum of pattern and phase flat-detector ratios.
       REAL X2XCorrPhase(const REAL x) const;
+      /// Get the derivative of X2XCorrPhase(x) versus x.
+      REAL X2XCorrPhaseDerivX(const REAL x) const;
    protected:
       virtual void CalcPowderPattern() const;
       virtual void CalcPowderPattern_FullDeriv(std::set<RefinablePar *> &vPar);
@@ -983,6 +985,7 @@ class PowderPattern : public RefinableObj
          virtual const CrystVector_REAL& GetLSQCalc(const unsigned int) const;
          virtual const CrystVector_REAL& GetLSQObs(const unsigned int) const;
          virtual const CrystVector_REAL& GetLSQWeight(const unsigned int) const;
+         virtual const CrystVector_REAL& GetLSQDeriv(const unsigned int, RefinablePar&);
          virtual std::map<RefinablePar*, CrystVector_REAL>& GetLSQ_FullDeriv(const unsigned int,std::set<RefinablePar *> &vPar);
       // I/O
          virtual void XMLOutput(ostream &os,int indent=0)const;
@@ -1011,6 +1014,16 @@ class PowderPattern : public RefinableObj
       /// \param ttheta: the theoretical x (2theta, tof) value.
       /// \return the x (2theta, tof) value as it appears on the pattern.
       REAL X2XCorr(const REAL x)const;
+      /** Get the analytical derivative of X2XCorr(x) versus one of the
+      * position correction parameters (Zero, 2ThetaDispl, 2ThetaTransp).
+      * \param x: the theoretical x (2theta, tof) value (uncorrected).
+      * \param par: the position correction parameter.
+      * \return the derivative, or 0 if par is not a position correction
+      * parameter of this PowderPattern.
+      */
+      REAL X2XCorrDeriv(const REAL x, const RefinablePar &par)const;
+      /// Get the derivative of X2XCorr(x) versus x.
+      REAL X2XCorrDerivX(const REAL x)const;
       /// Get the pixel number on the experimental pattern, from the
       /// theoretical (uncorrected) x coordinate, taking into account all corrections.
       /// (zero, transparency,..).
@@ -1039,6 +1052,8 @@ class PowderPattern : public RefinableObj
       ///
       /// This does not take into account any zero/transparency, etc... correction
          REAL STOL2X(const REAL stol)const;
+      /// Get the derivative of STOL2X(stol) versus stol=sin(theta)/lambda.
+         REAL STOL2XDeriv(const REAL stol)const;
       /// Convert X (either 2theta or TOF) to sin(theta)/lambda,
       /// depending on the type of radiation.
       ///

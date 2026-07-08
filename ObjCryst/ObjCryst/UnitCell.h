@@ -174,6 +174,20 @@ class UnitCell:public RefinableObj
 
       /// Volume of Unit Cell (in Angstroems)
       REAL GetVolume()const;
+      /** Get the derivative of the reciprocal metric tensor G* versus one
+      * lattice parameter, taking into account the space group lattice constraints
+      * (e.g. for a cubic lattice, da also changes b and c).
+      *
+      * Since \f$ \frac{1}{d_{hkl}^2} = \mathbf{h}^T G^* \mathbf{h} \f$, this can be used
+      * to compute analytical derivatives of peak positions versus lattice parameters:
+      * \f[ \frac{\partial (1/d^2)}{\partial p} = \mathbf{h}^T \frac{\partial G^*}{\partial p} \mathbf{h} \f]
+      *
+      * \param par: the lattice parameter (a, b, c, alpha, beta or gamma) of this UnitCell.
+      * \return the 3x3 derivative of the reciprocal metric tensor. If par is not
+      * a lattice parameter of this UnitCell, or does not actually change the lattice
+      * due to symmetry constraints, a null matrix is returned.
+      */
+      CrystMatrix_REAL GetReciprocalMetricTensorDeriv(const RefinablePar &par) const;
    protected:
       /** \brief Init all UnitCell parameters
       *  \param a,b,c : unit cell dimension, in angstroems
@@ -251,7 +265,7 @@ class UnitCell:public RefinableObj
       * \warning EXPERIMENTAL
       *
       * Normally lattice parameters are constrained by the space group choice
-      * (e.g. a=b=c and angles =90° for cubic spacegroups). Using this option
+      * (e.g. a=b=c and angles =90ï¿½ for cubic spacegroups). Using this option
       * allows you to override this, and choose any lattice parameter. THis works
       * as long as symmetry operations are applied to fractionnal coordinates.
       *

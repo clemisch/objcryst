@@ -89,6 +89,38 @@ void ReflectionProfile::SetMicrostrainPpm(const REAL microstrain)
 {
    throw ObjCrystException("ReflectionProfile::SetMicrostrainPpm(): microstrain broadening is not supported for this profile");
 }
+
+std::map<RefinablePar*,CrystVector_REAL> ReflectionProfile::GetProfileDeriv
+      (const CrystVector_REAL &x, const REAL xcenter,
+       const REAL h, const REAL k, const REAL l,
+       const std::set<RefinablePar*> &vPar, const bool derivCenter)
+{
+   // Default implementation: numerical derivatives
+   std::map<RefinablePar*,CrystVector_REAL> res;
+   CrystVector_REAL tmp;
+   for(std::set<RefinablePar*>::const_iterator pos=vPar.begin();pos!=vPar.end();++pos)
+   {
+      if(*pos==0) continue;
+      const REAL step=(*pos)->GetDerivStep();
+      (*pos)->Mutate(step);
+      tmp =this->GetProfile(x,xcenter,h,k,l);
+      (*pos)->Mutate(-2*step);
+      tmp-=this->GetProfile(x,xcenter,h,k,l);
+      (*pos)->Mutate(step);
+      tmp/=2*step;
+      if(MaxAbs(tmp)==0) continue;// Parameter does not affect this profile
+      res[*pos]=tmp;
+   }
+   if(derivCenter)
+   {
+      const REAL step=1e-4;//:TODO: adapt for TOF
+      tmp =this->GetProfile(x,xcenter+step,h,k,l);
+      tmp-=this->GetProfile(x,xcenter-step,h,k,l);
+      tmp/=2*step;
+      res[(RefinablePar*)0]=tmp;
+   }
+   return res;
+}
 ////////////////////////////////////////////////////////////////////////
 //
 //    ReflectionProfilePseudoVoigt
@@ -176,6 +208,150 @@ CrystVector_REAL ReflectionProfilePseudoVoigt::GetProfile(const CrystVector_REAL
    //                                    mAsymBerarBaldinozziB0,mAsymBerarBaldinozziB1);
    VFN_DEBUG_EXIT("ReflectionProfilePseudoVoigt::GetProfile()",2)
    return profile;
+}
+
+std::map<RefinablePar*,CrystVector_REAL> ReflectionProfilePseudoVoigt::GetProfileDeriv
+      (const CrystVector_REAL &x, const REAL center,
+       const REAL h, const REAL k, const REAL l,
+       const std::set<RefinablePar*> &vPar, const bool derivCenter)
+{
+   VFN_DEBUG_ENTRY("ReflectionProfilePseudoVoigt::GetProfileDeriv()",2)
+   std::map<RefinablePar*,CrystVector_REAL> res;
+   // Identify the requested parameters with an analytical derivative
+   enum {kU=0,kV,kW,kP,kMs,kEta0,kEta1,kAsym0,kAsym1,kAsym2,kNbPar};
+   const REAL* vpPar[kNbPar]={&mCagliotiU,&mCagliotiV,&mCagliotiW,&mScherrerP,
+                              &mMicrostrainPpm,&mPseudoVoigtEta0,&mPseudoVoigtEta1,
+                              &mAsym0,&mAsym1,&mAsym2};
+   RefinablePar* vNeed[kNbPar]={0,0,0,0,0,0,0,0,0,0};
+   std::set<RefinablePar*> vNum;// parameters of this object without an analytical derivative
+   bool needAny=derivCenter;
+   for(std::set<RefinablePar*>::const_iterator pos=vPar.begin();pos!=vPar.end();++pos)
+   {
+      if(*pos==0) continue;
+      const REAL *p=(*pos)->GetPointer();
+      int code=-1;
+      for(int i=0;i<kNbPar;i++) if(p==vpPar[i]) {code=i;break;}
+      if(code>=0) {vNeed[code]=*pos;needAny=true;}
+      else
+      {// Not an analytical parameter - does it belong to this object at all ?
+       // If not, it cannot affect the profile (derivative=0, no map entry)
+         for(long i=0;i<this->GetNbPar();i++)
+            if(this->GetPar(i).GetPointer()==p) {vNum.insert(*pos);break;}
+      }
+   }
+   if(!vNum.empty())
+   {// Fall back to numerical derivatives (e.g. Berar-Baldinozzi asymmetry parameters)
+      std::map<RefinablePar*,CrystVector_REAL> num
+         =this->ReflectionProfile::GetProfileDeriv(x,center,h,k,l,vNum,false);
+      res.insert(num.begin(),num.end());
+   }
+   if(!needAny)
+   {
+      VFN_DEBUG_EXIT("ReflectionProfilePseudoVoigt::GetProfileDeriv()",2)
+      return res;
+   }
+
+   // Common quantities - must follow exactly GetProfile()
+   const REAL t=tan(center/2.0),cs=cos(center/2.0);
+   const REAL sec2=1.0/(cs*cs);
+   const REAL fwhm2= mCagliotiW +mCagliotiV*t +mCagliotiU*t*t +mScherrerP*sec2;
+   const bool fwhm2Clamped=(fwhm2<=0);
+   const REAL fg= fwhm2Clamped ? 1e-6 : sqrt(fwhm2);
+   REAL fwhm=fg+1e-4*mMicrostrainPpm*t;
+   // PowderProfileGauss/Lorentz clamp the fwhm - then the width is locally constant
+   const bool fwhmClamped=(fwhm<=0);
+   if(fwhmClamped) fwhm=1e-6;
+
+   const REAL etaRaw=mPseudoVoigtEta0+center*mPseudoVoigtEta1;
+   REAL eta=etaRaw;
+   bool etaClamped=false;
+   if(eta>1){eta=1;etaClamped=true;}
+   if(eta<0){eta=0;etaClamped=true;}
+
+   const REAL sc=sin(center);
+   const REAL asym=mAsym0+mAsym1/sc+mAsym2/(sc*sc);
+
+   // Per-side constants, following the Toraya convention in PowderProfileGauss/Lorentz
+   const REAL ln2=log(2.);
+   const REAL K1=(1+asym)/asym, K2=(1+asym);
+   const REAL dK1dA=-1.0/(asym*asym), dK2dA=1.0;
+   // Gauss: G=Ng*exp(cg*d^2), cg=-ln2*K^2/fwhm^2
+   const REAL Ng=2./fwhm*sqrt(ln2/M_PI);
+   const REAL cg1=-ln2*K1*K1/(fwhm*fwhm), cg2=-ln2*K2*K2/(fwhm*fwhm);
+   const REAL dcg1dA=-2*ln2*K1*dK1dA/(fwhm*fwhm), dcg2dA=-2*ln2*K2*dK2dA/(fwhm*fwhm);
+   // Lorentz: L=Nl/(1+cl*d^2), cl=K^2/fwhm^2
+   const REAL Nl=2./(M_PI*fwhm);
+   const REAL cl1=K1*K1/(fwhm*fwhm), cl2=K2*K2/(fwhm*fwhm);
+   const REAL dcl1dA=2*K1*dK1dA/(fwhm*fwhm), dcl2dA=2*K2*dK2dA/(fwhm*fwhm);
+
+   // Partial derivatives of the profile versus its intermediate quantities:
+   // fwhm, eta, asym, and the direct (fixed-width) derivative versus the center
+   const long nbPoints=x.numElements();
+   CrystVector_REAL dPdf(nbPoints),dPdeta(nbPoints),dPdA(nbPoints),dPdc(nbPoints);
+   {
+      const REAL *px=x.data();
+      bool side2=false;
+      for(long i=0;i<nbPoints;i++)
+      {
+         const REAL cg   =side2?cg2:cg1,       cl   =side2?cl2:cl1;
+         const REAL dcgdA=side2?dcg2dA:dcg1dA, dcldA=side2?dcl2dA:dcl1dA;
+         const REAL d=px[i]-center;
+         const REAL d2=d*d;
+         const REAL G=Ng*exp(cg*d2);
+         const REAL D=1+cl*d2;
+         const REAL L=Nl/D;
+         const REAL dGdf=-(G/fwhm)*(1+2*cg*d2);
+         const REAL dLdf= (L/fwhm)*(2*cl*d2/D-1);
+         const REAL dGdc=-2*cg*d*G;
+         const REAL dLdc= 2*cl*d*L/D;
+         const REAL dGdA=G*d2*dcgdA;
+         const REAL dLdA=-(L/D)*d2*dcldA;
+         dPdf(i)  =(1-eta)*dGdf+eta*dLdf;
+         dPdeta(i)=L-G;
+         dPdA(i)  =(1-eta)*dGdA+eta*dLdA;
+         dPdc(i)  =(1-eta)*dGdc+eta*dLdc;
+         // Same side convention as in PowderProfileGauss/Lorentz: the first point
+         // beyond the center still uses the left-side coefficients
+         if((!side2)&&(px[i]>center)) side2=true;
+      }
+   }
+
+   // Chain derivatives of the intermediate quantities versus the parameters
+   const REAL dfdU =(fwhm2Clamped||fwhmClamped)?0:t*t /(2*fg);
+   const REAL dfdV =(fwhm2Clamped||fwhmClamped)?0:t   /(2*fg);
+   const REAL dfdW =(fwhm2Clamped||fwhmClamped)?0:1.0 /(2*fg);
+   const REAL dfdP =(fwhm2Clamped||fwhmClamped)?0:sec2/(2*fg);
+   const REAL dfdMs=fwhmClamped?0:1e-4*t;
+   const REAL detadE0=etaClamped?0:1.0;
+   const REAL detadE1=etaClamped?0:center;
+   const REAL dAdA1=1/sc, dAdA2=1/(sc*sc);
+   const REAL vFactor[kNbPar]={dfdU,dfdV,dfdW,dfdP,dfdMs,detadE0,detadE1,1.0,dAdA1,dAdA2};
+   const CrystVector_REAL* vDeriv[kNbPar]={&dPdf,&dPdf,&dPdf,&dPdf,&dPdf,
+                                           &dPdeta,&dPdeta,&dPdA,&dPdA,&dPdA};
+   for(int i=0;i<kNbPar;i++)
+   {
+      if(vNeed[i]==0) continue;
+      if(vFactor[i]==0) continue;// zero derivative - no map entry
+      CrystVector_REAL &v=res[vNeed[i]];
+      v=*(vDeriv[i]);
+      v*=vFactor[i];
+   }
+
+   if(derivCenter)
+   {// Full derivative vs the center, including the dependence of fwhm, eta
+    // and asym on the reflection center
+      const REAL dfdc=((fwhm2Clamped||fwhmClamped)?0:sec2*(mCagliotiV/2+mCagliotiU*t+mScherrerP*t)/(2*fg))
+                      +(fwhmClamped?0:1e-4*mMicrostrainPpm*sec2/2);
+      const REAL detadc=etaClamped?0:mPseudoVoigtEta1;
+      const REAL cc=cos(center);
+      const REAL dAdc=-mAsym1*cc/(sc*sc)-2*mAsym2*cc/(sc*sc*sc);
+      CrystVector_REAL dc(nbPoints);
+      for(long i=0;i<nbPoints;i++)
+         dc(i)=dPdc(i)+dPdf(i)*dfdc+dPdeta(i)*detadc+dPdA(i)*dAdc;
+      res[(RefinablePar*)0]=dc;
+   }
+   VFN_DEBUG_EXIT("ReflectionProfilePseudoVoigt::GetProfileDeriv()",2)
+   return res;
 }
 
 void ReflectionProfilePseudoVoigt::SetProfilePar(const REAL fwhmCagliotiW,
