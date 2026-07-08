@@ -1563,6 +1563,38 @@ REAL PowderPatternDiffraction::X2XCorrPhaseDerivX(const REAL x) const
    return d;
 }
 
+bool PowderPatternDiffraction::HasAnalyticalX2XCorrPhaseDeriv(const RefinablePar &par) const
+{
+   return mpParentPowderPattern->HasAnalyticalX2XCorrDeriv(par)
+        ||(par.GetPointer()==&m2ThetaPhaseFlatDetDispRatio);
+}
+
+REAL PowderPatternDiffraction::X2XCorrPhaseDeriv(const REAL x, const RefinablePar &par) const
+{
+   // Pattern-global corrections (zero, sample displacement, transparency)
+   REAL d=mpParentPowderPattern->X2XCorrDeriv(x,par);
+   // Flat-detector dispersion ratio correction (monochromatic / alpha12 only).
+   // Both the pattern-global (2ThetaFlatDetDispRatio) and this phase's
+   // (2ThetaFlatDetDispRatioPhase) parameters enter X2XCorrPhase() as their sum,
+   // so their derivatives are identical.
+   if(  (this->GetRadiation().GetWavelengthType()==WAVELENGTH_MONOCHROMATIC)
+      ||(this->GetRadiation().GetWavelengthType()==WAVELENGTH_ALPHA12))
+   {
+      const bool isFlatDet=(par.GetPointer()==&m2ThetaPhaseFlatDetDispRatio)
+                          ||mpParentPowderPattern->IsFlatDetDispRatioPar(par);
+      if(isFlatDet)
+      {// xc += atan(u/v), u=ratio*sin(2x), v=2-2*ratio*sin^2(x); d/dratio:
+         const REAL ratio=mpParentPowderPattern->Get2ThetaFlatDetDispRatio()
+                         + m2ThetaPhaseFlatDetDispRatio;
+         const REAL s2=sin(2*x), s=sin(x);
+         const REAL u=ratio*s2, v=2-2*ratio*s*s;
+         const REAL du=s2, dv=-2*s*s;
+         d += (du*v-u*dv)/(u*u+v*v);// well-defined at ratio=0 (v=2): d = sin(2x)/2
+      }
+   }
+   return d;
+}
+
 unsigned int PowderPatternDiffraction::GetProfileFitNetNbObs()const
 {
    unsigned int nb=0;
@@ -2319,16 +2351,23 @@ Radiation must be either monochromatic, from an X-Ray Tube, or neutron TOF !!");
 
    // How is d(center)/d(par) computed for each center-shifting parameter ?
    enum CenterDerivMode {CENTER_DERIV_ZERO,     // parameter does not shift the centers
-                         CENTER_DERIV_CORRPOS,  // analytical, zero/displacement/transparency
+                         CENTER_DERIV_CORRPOS,  // analytical, zero/displacement/transparency/flat-det ratio
                          CENTER_DERIV_LATTICE,  // analytical, unit cell parameters
-                         CENTER_DERIV_NUMERIC}; // numerical (e.g. wavelength)
+                         CENTER_DERIV_NUMERIC}; // numerical (e.g. wavelength, TOF DIFC/DIFA)
    std::vector<CenterDerivMode> vCenterMode(vCenterPar.size());
    std::vector<CrystMatrix_REAL> vdGstar(vCenterPar.size());
    bool needCenterDeriv=false;
    for(unsigned int j=0;j<vCenterPar.size();j++)
    {
       if(vCenterPar[j]->GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos))
-         vCenterMode[j]=CENTER_DERIV_CORRPOS;// X2XCorrDeriv() returns 0 if not from the parent pattern
+      {// Position corrections: analytical if we know the derivative (zero,
+       // displacement, transparency, flat-detector dispersion ratio), else
+       // numerical (e.g. TOF DIFC/DIFA) - never a silent zero.
+         if(this->HasAnalyticalX2XCorrPhaseDeriv(*(vCenterPar[j])))
+            vCenterMode[j]=CENTER_DERIV_CORRPOS;
+         else
+            vCenterMode[j]=CENTER_DERIV_NUMERIC;
+      }
       else if(vCenterPar[j]->GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell))
       {
          vCenterMode[j]=CENTER_DERIV_ZERO;
@@ -2408,8 +2447,8 @@ Radiation must be either monochromatic, from an X-Ray Tube, or neutron TOF !!");
                {
                   case CENTER_DERIV_ZERO: break;
                   case CENTER_DERIV_CORRPOS:
-                  {// zero shift, sample displacement, sample transparency
-                     dcenter=mpParentPowderPattern->X2XCorrDeriv(xline,*(vCenterPar[j]));
+                  {// zero shift, sample displacement/transparency, flat-det ratio
+                     dcenter=this->X2XCorrPhaseDeriv(xline,*(vCenterPar[j]));
                      break;
                   }
                   case CENTER_DERIV_LATTICE:
@@ -3333,6 +3372,18 @@ REAL PowderPattern::X2XCorrDerivX(const REAL x0)const
       d += -m2ThetaDisplacement*sin(x0/2)/2
           + m2ThetaTransparency*cos(x0);
    return d;
+}
+
+bool PowderPattern::HasAnalyticalX2XCorrDeriv(const RefinablePar &par)const
+{
+   const REAL *p=par.GetPointer();
+   return (p==&mXZero)||(p==&m2ThetaDisplacement)||(p==&m2ThetaTransparency)
+        ||(p==&m2ThetaFlatDetDispRatio);
+}
+
+bool PowderPattern::IsFlatDetDispRatioPar(const RefinablePar &par)const
+{
+   return par.GetPointer()==&m2ThetaFlatDetDispRatio;
 }
 
 REAL PowderPattern::X2PixelCorr(const REAL x0)const

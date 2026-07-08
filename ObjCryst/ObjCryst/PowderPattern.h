@@ -507,6 +507,20 @@ class PowderPatternDiffraction : virtual public PowderPatternComponent,public Sc
       REAL X2XCorrPhase(const REAL x) const;
       /// Get the derivative of X2XCorrPhase(x) versus x.
       REAL X2XCorrPhaseDerivX(const REAL x) const;
+      /** Get the analytical derivative of X2XCorrPhase(x) versus one of the
+      * position correction parameters. This includes the pattern-global
+      * corrections (Zero, 2ThetaDispl, 2ThetaTransp) as well as the flat-detector
+      * dispersion ratio (pattern-global 2ThetaFlatDetDispRatio and this phase's
+      * 2ThetaFlatDetDispRatioPhase).
+      * \return the derivative, or 0 if par is not one of these parameters.
+      */
+      REAL X2XCorrPhaseDeriv(const REAL x, const RefinablePar &par) const;
+      /** Does par have an analytical derivative through X2XCorrPhase() ?
+      * (Zero, sample displacement/transparency and the flat-detector dispersion
+      * ratios have one; other position corrections such as TOF DIFC/DIFA do not
+      * and are handled numerically.)
+      */
+      bool HasAnalyticalX2XCorrPhaseDeriv(const RefinablePar &par) const;
    protected:
       virtual void CalcPowderPattern() const;
       virtual void CalcPowderPattern_FullDeriv(std::set<RefinablePar *> &vPar);
@@ -1024,6 +1038,11 @@ class PowderPattern : public RefinableObj
       REAL X2XCorrDeriv(const REAL x, const RefinablePar &par)const;
       /// Get the derivative of X2XCorr(x) versus x.
       REAL X2XCorrDerivX(const REAL x)const;
+      /// Does par have an analytical X2XCorr derivative (Zero, sample
+      /// displacement, sample transparency, or the flat-detector dispersion ratio) ?
+      bool HasAnalyticalX2XCorrDeriv(const RefinablePar &par)const;
+      /// Is par the pattern-global flat-detector 2theta dispersion ratio ?
+      bool IsFlatDetDispRatioPar(const RefinablePar &par)const;
       /// Get the pixel number on the experimental pattern, from the
       /// theoretical (uncorrected) x coordinate, taking into account all corrections.
       /// (zero, transparency,..).
