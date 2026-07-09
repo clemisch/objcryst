@@ -182,26 +182,27 @@ void LSQNumObj::Refine (int nbCycle,bool useLevenbergMarquardt,
       //cout <<"obs:"<<FormatHorizVector<REAL>(calc0,10,8);
       //cout <<"calc:"<<FormatHorizVector<REAL>(mObs,10,8);
       //cout <<"weight:"<<FormatHorizVector<REAL>(mWeight,10,8);
-      #if 1
-      for(i=0;i<nbVar;i++)
-      {
-         //:NOTE: Real design matrix is the transposed of the one computed here
-         //if(!silent) cout << "........." << mRefParList.GetParNotFixed(i).GetName() <<endl;
-
-         tmpV1=this->GetLSQDeriv(mRefParList.GetParNotFixed(i));
-         pTmp1=tmpV1.data();
-         //cout <<"deriv#"<<i<<":"<<FormatHorizVector<REAL>(tmpV1,10,8);
-         for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
-      }
-      #else
+      // Compute the whole Jacobian in a single call: this lets the analytical
+      // derivatives (profile shape, unit cell, peak positions) share their common
+      // work across all parameters in one pass, instead of recomputing it once per
+      // parameter as the older per-parameter GetLSQDeriv() loop did.
       this->GetLSQ_FullDeriv();
       for(i=0;i<nbVar;i++)
       {
-         pTmp1=mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))].data();
-         //if(i>=(nbVar-2)) cout<<__FILE__<<":"<<__LINE__<<":"<<(mRefParList.GetParNotFixed(i)).GetName()<<"size="<<mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))].size()<<":"<<mLSQ_FullDeriv[&(mRefParList.GetParNotFixed(i))]<<endl;
-         for(j=0;j<nbObs;j++) *pTmp2++ = *pTmp1++;
+         //:NOTE: Real design matrix is the transposed of the one computed here
+         std::map<RefinablePar*,CrystVector_REAL>::const_iterator d
+            =mLSQ_FullDeriv.find(&(mRefParList.GetParNotFixed(i)));
+         if((d!=mLSQ_FullDeriv.end())&&(d->second.numElements()>=nbObs))
+         {
+            const REAL *p1=d->second.data();
+            for(j=0;j<nbObs;j++) *pTmp2++ = *p1++;
+         }
+         else
+         {// Parameter has no derivative (no effect on the pattern): null column.
+          // It will be caught as a singular parameter below and auto-fixed.
+            for(j=0;j<nbObs;j++) *pTmp2++ = 0;
+         }
       }
-      #endif
          //cout << designMatrix;
 
       TAU_PROFILE_STOP(timer2);

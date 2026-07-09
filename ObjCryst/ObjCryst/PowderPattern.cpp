@@ -5893,31 +5893,54 @@ const CrystVector_REAL& PowderPattern::GetLSQDeriv(const unsigned int idx, Refin
 std::map<RefinablePar*, CrystVector_REAL>& PowderPattern::GetLSQ_FullDeriv(const unsigned int idx,std::set<RefinablePar *> &vPar)
 {
    TAU_PROFILE("PowderPattern::GetLSQ_FullDeriv()","void ()",TAU_DEFAULT);
-   //return this->RefinableObj::GetLSQ_FullDeriv(idx,vPar);
+   // Split the requested parameters into those the analytical machinery handles
+   // correctly (see HasAnalyticalLSQDeriv(): peak profile shape, unit cell,
+   // peak-position corrections) and the rest (reflection intensities: atom
+   // positions, Biso, occupancy; absorption; scale factors; ...).
+   //
+   // All the analytical parameters are differentiated in a *single shared pass*
+   // (this is the whole point of the FullDeriv machinery: the base pattern and
+   // reflection profiles, and the per-point profile-shape derivatives, are
+   // computed once for the whole set). The remaining parameters fall back to a
+   // per-parameter numerical derivative, which is comparatively cheap because
+   // perturbing an intensity parameter does not recompute the reflection profiles.
+   std::set<RefinablePar*> vAnalytic;
+   std::vector<RefinablePar*> vNumeric;
+   for(std::set<RefinablePar*>::iterator par=vPar.begin();par!=vPar.end();++par)
+   {
+      if((*par==0)||this->HasAnalyticalLSQDeriv(**par)) vAnalytic.insert(*par);
+      else vNumeric.push_back(*par);
+   }
+
+   std::map<RefinablePar*, CrystVector_REAL> *pDeriv;
    if(idx==1)
    {
-      this->CalcPowderPatternIntegrated_FullDeriv(vPar);
-      #if 0
-      std::map<RefinablePar*, CrystVector_REAL> fullderiv_old;
-      std::vector<const CrystVector_REAL*> v;
-      int n=0;
-      //cout<<"PowderPattern::GetLSQ_FullDeriv(integrated):scales:"<<mScaleFactor<<endl;
-      cout<<"PowderPattern::GetLSQ_FullDeriv(integrated):parameters:"<<endl;
-      for(std::set<RefinablePar*>::iterator par=vPar.begin();par!=vPar.end();++par)
-      {
-         v.push_back(&(mPowderPatternIntegrated_FullDeriv[*par]));
-         fullderiv_old[*par]=this->GetLSQDeriv(idx,*(*par));
-         v.push_back(&(fullderiv_old[*par]));
-         cout<<(*par)->GetName()<<":"<<mPowderPatternIntegrated_FullDeriv[*par].size()<<","<<fullderiv_old[*par].size()<<endl;
-         if(++n>8) break;
-      }
-      cout<<"PowderPattern::GetLSQ_FullDeriv(integrated):"<<endl<<FormatVertVector<REAL>(v,12,1,20)<<endl;
-      //exit(0);
-      #endif
-      return mPowderPatternIntegrated_FullDeriv;
+      this->CalcPowderPatternIntegrated_FullDeriv(vAnalytic);
+      pDeriv=&mPowderPatternIntegrated_FullDeriv;
    }
-   mPowderPattern_FullDeriv=this->GetPowderPattern_FullDeriv(vPar);
-   return mPowderPattern_FullDeriv;
+   else
+   {
+      this->GetPowderPattern_FullDeriv(vAnalytic);// fills mPowderPattern_FullDeriv
+      pDeriv=&mPowderPattern_FullDeriv;
+   }
+   std::map<RefinablePar*, CrystVector_REAL> &deriv=*pDeriv;
+
+   // Numerical fallback for the parameters without a (trusted) analytical derivative.
+   for(std::vector<RefinablePar*>::iterator pos=vNumeric.begin();pos!=vNumeric.end();++pos)
+   {
+      RefinablePar *par=*pos;
+      const REAL step=par->GetDerivStep();
+      par->Mutate(step);
+      CrystVector_REAL d=this->GetLSQCalc(idx);// copy: GetLSQCalc reuses its buffer
+      par->Mutate(-2*step);
+      d-=this->GetLSQCalc(idx);
+      par->Mutate(step);
+      d/=2*step;
+      deriv[par]=d;
+   }
+   // Leave the object in its nominal (unperturbed) state.
+   if(!vNumeric.empty()) this->GetLSQCalc(idx);
+   return deriv;
 }
 
 void PowderPattern::Prepare()
