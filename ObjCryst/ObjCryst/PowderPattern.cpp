@@ -5847,9 +5847,11 @@ const CrystVector_REAL&
 bool PowderPattern::HasAnalyticalLSQDeriv(const RefinablePar &par) const
 {
    // Single source of truth for "which parameters GetLSQDeriv trusts the
-   // analytical (GetLSQ_FullDeriv) path for". These are exactly the categories
-   // handled by PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv:
-   // peak profile shape, unit cell and peak-position corrections.
+   // analytical (GetLSQ_FullDeriv) path for":
+   //  - peak profile shape, unit cell and peak-position corrections, handled by
+   //    PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv;
+   //  - the (phase) scale factors, whose derivative is trivially the unscaled
+   //    component pattern and is computed by CalcPowderPattern[Integrated]_FullDeriv.
    //
    // Everything else falls back to the numerical derivative. Note this cannot be
    // inferred from whether GetLSQ_FullDeriv produced a value: the intensity
@@ -5858,7 +5860,8 @@ bool PowderPattern::HasAnalyticalLSQDeriv(const RefinablePar &par) const
    // so the trusted set has to be stated explicitly - here.
    return par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile)
         ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell)
-        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos);
+        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos)
+        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataScale);
 }
 
 const CrystVector_REAL& PowderPattern::GetLSQDeriv(const unsigned int idx, RefinablePar &par)
