@@ -5844,44 +5844,41 @@ const CrystVector_REAL&
    return mPowderPatternUsedWeight;
 }
 
+bool PowderPattern::HasAnalyticalLSQDeriv(const RefinablePar &par) const
+{
+   // Single source of truth for "which parameters GetLSQDeriv trusts the
+   // analytical (GetLSQ_FullDeriv) path for". These are exactly the categories
+   // handled by PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv:
+   // peak profile shape, unit cell and peak-position corrections.
+   //
+   // Everything else falls back to the numerical derivative. Note this cannot be
+   // inferred from whether GetLSQ_FullDeriv produced a value: the intensity
+   // (structure-factor / correction) derivatives are either absent (looks the
+   // same as a parameter with no effect) or present-but-wrong (e.g. occupancy),
+   // so the trusted set has to be stated explicitly - here.
+   return par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile)
+        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell)
+        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos);
+}
+
 const CrystVector_REAL& PowderPattern::GetLSQDeriv(const unsigned int idx, RefinablePar &par)
 {
-   // Analytical derivatives are implemented (and validated) only for the peak
-   // profile shape, the unit cell and the peak-position corrections. For every
-   // other parameter - in particular the ones affecting the reflection
-   // intensities (atom positions, Biso, occupancy, absorption, texture, ...) and
-   // the scale factors - the analytical derivative path (GetLSQ_FullDeriv, via the
-   // structure-factor and intensity-correction code) is either missing or only
-   // partially implemented. Using it would silently return a wrong (often zero)
-   // derivative, which makes the least-squares deactivate the parameter.
-   // We therefore restrict the analytical path to the parameters we handle, and
-   // fall back to the (always correct) numerical derivative for the rest.
-   //
-   // A fixed parameter cannot be mutated, so both the numerical derivative
-   // (which calls RefinablePar::Mutate) and the analytical _FullDeriv (which
-   // skips fixed parameters) would return zero. Temporarily unfix the parameter
-   // so its derivative can always be computed, as the base class expects.
-   const bool wasFixed=par.IsFixed();
-   if(wasFixed) par.SetIsFixed(false);
-
-   if(!(  par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataProfile)
-        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeUnitCell)
-        ||par.GetType()->IsDescendantFromOrSameAs(gpRefParTypeScattDataCorrPos)))
-   {
-      const CrystVector_REAL &v=this->RefinableObj::GetLSQDeriv(idx,par);
-      if(wasFixed) par.SetIsFixed(true);
-      return v;
-   }
+   // Use the analytical derivative only where it is trustworthy; fall back to the
+   // (always correct) numerical derivative of the base class for the rest.
+   if(!this->HasAnalyticalLSQDeriv(par))
+      return this->RefinableObj::GetLSQDeriv(idx,par);
 
    std::set<RefinablePar*> vPar;
    vPar.insert(&par);
    std::map<RefinablePar*, CrystVector_REAL> &vDeriv=this->GetLSQ_FullDeriv(idx,vPar);
-   if(wasFixed) par.SetIsFixed(true);
    const unsigned long nb=this->GetLSQCalc(idx).numElements();
    std::map<RefinablePar*, CrystVector_REAL>::iterator pos=vDeriv.find(&par);
    if((pos==vDeriv.end())||(pos->second.numElements()==0))
-   {// The parameter has no effect on the pattern (e.g. a lattice parameter fixed
-    // by symmetry, or TOF DIFC/DIFA for monochromatic radiation): derivative is 0.
+   {// The parameter does not affect the pattern: a lattice parameter fixed by
+    // symmetry, TOF DIFC/DIFA for monochromatic radiation, or a fixed parameter
+    // (GetLSQ_FullDeriv skips fixed parameters, exactly as the base class
+    // numerical derivative returns 0 because RefinablePar::Mutate is a no-op on a
+    // fixed parameter). The derivative is 0.
       mLSQDeriv.resize(nb);
       mLSQDeriv=0;
       return mLSQDeriv;

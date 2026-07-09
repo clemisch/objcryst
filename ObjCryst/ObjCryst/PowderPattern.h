@@ -1001,6 +1001,19 @@ class PowderPattern : public RefinableObj
          virtual const CrystVector_REAL& GetLSQWeight(const unsigned int) const;
          virtual const CrystVector_REAL& GetLSQDeriv(const unsigned int, RefinablePar&);
          virtual std::map<RefinablePar*, CrystVector_REAL>& GetLSQ_FullDeriv(const unsigned int,std::set<RefinablePar *> &vPar);
+         /** Whether the analytical derivative (GetLSQ_FullDeriv) is complete and
+         * correct for a given parameter, or whether GetLSQDeriv must fall back to
+         * the numerical derivative.
+         *
+         * True for the parameter categories handled by
+         * PowderPatternDiffraction::CalcPowderReflProfile_FullDeriv (peak profile
+         * shape, unit cell and peak-position corrections). False for everything
+         * else - in particular the parameters affecting the reflection
+         * intensities (atom positions, Biso, occupancy, absorption, texture) and
+         * the scale factors, whose analytical derivatives are missing or only
+         * partially implemented. Keep in sync with that method.
+         */
+         bool HasAnalyticalLSQDeriv(const RefinablePar &par) const;
       // I/O
          virtual void XMLOutput(ostream &os,int indent=0)const;
          virtual void XMLInput(istream &is,const XMLCrystTag &tag);
